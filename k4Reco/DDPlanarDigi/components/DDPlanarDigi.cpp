@@ -36,11 +36,15 @@
 DDPlanarDigi::DDPlanarDigi(const std::string& name, ISvcLocator* svcLoc)
     : MultiTransformer(name, svcLoc,
                        {
-                           KeyValues("SimTrackHitCollectionName", {"SimTrackerHits"}),
+                           KeyValues("SimTrackHitCollectionName", {"SiWrBCollection"}),
                            KeyValues("HeaderName", {"EventHeader"}),
                        },
-                       {KeyValues("TrackerHitCollectionName", {"VTXTrackerHits"}),
-                        KeyValues("SimTrkHitRelCollection", {"VTXTrackerHitRelations"})}) {
+                       {KeyValues("TrackerHitCollectionName", {"SiWrBHits"}),
+                        KeyValues("SimTrkHitRelCollection", {"SiWrBHitRelations"})}) {
+  
+  std::cout << "######## USING MY LOCAL DDPlanarDigi ########" << std::endl;
+  /* service<T>(name,createIfNotExisting) : Gaudi template helper available to any Gaudi component via inheritance taht looks up a service by name 
+  and interface type and returns back a SmartIF<T>*/
   m_uidSvc = service<IUniqueIDGenSvc>("UniqueIDGenSvc", true);
   if (!m_uidSvc) {
     error() << "Unable to get UniqueIDGenSvc" << endmsg;
@@ -69,6 +73,7 @@ DDPlanarDigi::DDPlanarDigi(const std::string& name, ISvcLocator* svcLoc)
 }
 
 StatusCode DDPlanarDigi::initialize() {
+  info() << "######### within initialize()##########" << endmsg;
   m_geoSvc = serviceLocator()->service(m_geoSvcName);
   if (!m_geoSvc) {
     error() << "Unable to retrieve the GeoSvc" << endmsg;
@@ -76,7 +81,8 @@ StatusCode DDPlanarDigi::initialize() {
   }
 
   const auto detector = m_geoSvc->getDetector();
-
+  
+  // extension<T>() : type-based plugin/extension retrieval mechanism.
   const auto surfMan = detector->extension<dd4hep::rec::SurfaceManager>();
   dd4hep::DetElement det = detector->detector(m_subDetName.value());
   surfaceMap = surfMan->map(m_subDetName.value());
@@ -88,8 +94,13 @@ StatusCode DDPlanarDigi::initialize() {
   // Get and store the name for a debug message later
   (void)this->getProperty("SimTrackHitCollectionName", m_collName);
 
-  if (m_cellIDBits != 64) {
-    m_mask = (static_cast<std::uint64_t>(1) << m_cellIDBits) - 1;
+  //builds a bitmask used later to truncate cellIDs
+  /* this loop is excecuted iff the user has specified a value ffor m_cellIDBits that is not the default value of 64.
+   << is the left shift operator. slides every bit in the number to the left by however many positions you specify, filling zeros from the right
+   for eg> 1 in 8bit binary is 00000001, if m_cellIDBits is 4;  1<< 4 = 00010000 (16 in decimnal 1 x2^4); 
+   now (1<<4) -1 = 00001111 (15 in decimal) : boorrows from the single set bit, flipping it to 0 and turning all the zeros below it to 1   */
+  if (m_cellIDBits != 64) { // m_cellIDBits specifies how many low-order bits of the 64-bit cellID carry meaningful info 
+    m_mask = (static_cast<std::uint64_t>(1) << m_cellIDBits) - 1; // m_mask defaults everything to 1; by default everything passes through unchanged
   }
 
   return StatusCode::SUCCESS;
@@ -109,7 +120,11 @@ DDPlanarDigi::operator()(const edm4hep::SimTrackerHitCollection& simTrackerHits,
   auto trkhitVec = edm4hep::TrackerHitPlaneCollection();
   auto thsthcol = edm4hep::TrackerHitSimTrackerHitLinkCollection();
 
+  /* m_encodingStringVariable.value () : unwarps the property to get std::sting coz m_encodingStringVariable is a Gaudi::Property<std::string> type; default string is "GlobalTrackerReadoutID" (check the header file). 
+   ->constantAsString(name) : method on geometry service interface that looks up a dd4hep xml constant by name and returns its value as string */
   std::string cellIDEncodingString = m_geoSvc->constantAsString(m_encodingStringVariable.value());
+  // dd4hep::DDSegmentation::BitFieldCoder : class that parses comma-seperated string at the construction time, building an internal table of field names. 
+  // Once built, this bitFieldCoder object can then decode any raw 64-bit cellID integer into its individual named components on demand
   dd4hep::DDSegmentation::BitFieldCoder bitFieldCoder(cellIDEncodingString);
 
   int nSimHits = simTrackerHits.size();
@@ -123,9 +138,18 @@ DDPlanarDigi::operator()(const edm4hep::SimTrackerHitCollection& simTrackerHits,
       continue;
     }
 
+    // hit.cellID() : returns raw cellID, a 64-bit integer that has multiple peices of the geo info packed iinto different bit ranges based on the encoding string
+    
+    /* this & here is bit-wise AND operator.  1 & 1 = 1, every other combo is 0; 
+    AND-ing against a mask of N low 1-bits keeps the low N bits of the cellID exactly as they were, and forcibly zeroes out everything above bit N.
+    This matters coz the deetectors actual cellID encoding may only occupy a certain nuumber of bits total. If the raw 64-bit integer comming out of 
+    the simulation has any stray bits set above teh meaniful range of the encoding, two cellIDs that are supposed to represnet the sam ephysical sensor 
+    could comapre as different. Trunctting with this mask gaurentess that only teh bits that are actually used for the cellID are kept, and any stray bits above that are zeroed out.  */   
+    
     const std::uint64_t cellID = hit.getCellID() & m_mask;
 
     // get the measurement surface for this hit using the CellID
+    // .find() doesnt return teh surfuce directly. It gives an interator to the map entry, which is a pair of (key, value) where key is the cellID and value : surfuce pointer 
     dd4hep::rec::SurfaceMap::const_iterator sI = surfaceMap->find(cellID);
 
     if (sI == surfaceMap->end()) {
@@ -135,21 +159,25 @@ DDPlanarDigi::operator()(const edm4hep::SimTrackerHitCollection& simTrackerHits,
     const dd4hep::rec::ISurface* surf = sI->second;
     int layer = bitFieldCoder.get(cellID, "layer");
 
-    dd4hep::rec::Vector3D oldPos(hit.getPosition()[0], hit.getPosition()[1], hit.getPosition()[2]);
+    // true, unsmeared 3D position (in global detector cordinates, mm - EDM4hep std convention) where the particle actually crossed the sensor accoding to G4 simulation 
+    dd4hep::rec::Vector3D oldPos(hit.getPosition()[0], hit.getPosition()[1], hit.getPosition()[2]); 
     dd4hep::rec::Vector3D newPos;
 
     //  Check if Hit is inside sensitive
+    /*convert the true hit position into dd4hep's internal units abd check whether it falls within the senosr's actual physical bounds. If it does not,
+    the hit sits outside trhe senosr it is nominally assigned t0, then enter this block */
     if (!surf->insideBounds(dd4hep::mm * oldPos)) {
-      // debug() << "  hit at " << oldPos
-      //         << " " << cellid_decoder( hit).valueString()
-      //         << " is not on surface "
-      //         << *surf
-      //         << " distance: " << surf->distance(  dd4hep::mm * oldPos )
-      //         << endmsg;
-
+      debug() << "  hit at " << oldPos
+               << " " << cellID
+               << " is not on surface "
+               << *surf
+               << " distance: " << surf->distance(  dd4hep::mm * oldPos )
+               << endmsg;
+      //debug() << "hit at " << oldPos << " " << " is not on the surfuce " << *surf  << endmsg;  
       if (m_forceHitsOntoSurface) {
-        dd4hep::rec::Vector2D lv = surf->globalToLocal(dd4hep::mm * oldPos);
-        dd4hep::rec::Vector3D oldPosOnSurf = (1. / dd4hep::mm) * surf->localToGlobal(lv);
+        debug() << "forcing the hit onto the surface " << endmsg; 
+        dd4hep::rec::Vector2D lv = surf->globalToLocal(dd4hep::mm * oldPos); // mathematically project the hit position straight onto the sensor's flat surfuce; thereby removing any small perpendicular offsetr was causing it to be flagged outside bounds
+        dd4hep::rec::Vector3D oldPosOnSurf = (1. / dd4hep::mm) * surf->localToGlobal(lv); // oldPosOnSurf similar to oldPos should be in plain mm and not in dd4hep::mm; hence the divide 
 
         debug() << " moved to " << oldPosOnSurf << " distance " << (oldPosOnSurf - oldPos).r() << endmsg;
 
@@ -157,18 +185,28 @@ DDPlanarDigi::operator()(const edm4hep::SimTrackerHitCollection& simTrackerHits,
 
       } else {
         ++nDismissedHits;
-        continue;
+        debug() << " hit dismissed coz m_foreceHitsOntoSurfuce is disabled " << endmsg;
+        continue; // loop control statement; skip the rest of this loop iteration and move on to the next hit in the collection; no digi hit will be created for this sim hit
       }
     }
-
+    debug() << " hit is on the surfuce " << endmsg;
     // Smear time of the hit and apply the time window cut if needed
-    double hitT = hit.getTime();
+    double hitT = hit.getTime(); // simulated time at which this energy deposit ocurred in the sensor (ns: EDM4hep std convention)
 
     if (m_resTLayer.size() && m_resTLayer[0] > 0) {
       float resT = m_resTLayer.size() > 1 ? m_resTLayer[layer] : m_resTLayer[0];
 
+      // rng_engine.Guas(mean, sigma): draws a random sample from a Gaussain distribution (here) centered at 0 with std. dev: resT; random timing jitters in a real detector 
       double tSmear = resT > 0 ? rng_engine.Gaus(0, resT) : 0;
+      /* pull/normalised residual : tSmear/resT; dividing the smear offset by the resolution that generated it. If you draw many samples from a 
+      Gaussian with mean 0 and standard deviation resT, and then divide every single sample by that same resT, the result is mathematically guaranteed 
+      to follow a standard normal distribution — mean 0, standard deviation exactly 1 — regardless of what resT's actual numeric value was. So if you 
+      fill this histogram over thousands of events and it comes out looking like a clean, unit-width bell curve, that's a strong confirmation the 
+      smearing math is implemented correctly. If it comes out systematically wider or narrower than a unit Gaussian, something's off 
+      (e.g., a units bug, or the histogram binning not actually matching what's being filled).
+      */
       ++(*m_histograms[hT])[resT > 0 ? tSmear / resT : 0];
+      // raw smearing histo that records the un-normalised smearing offset in ns. Shows the smearing magntude in genuibne physical units
       ++(*m_histograms[diffT])[tSmear];
 
       hitT += tSmear;
@@ -177,7 +215,11 @@ DDPlanarDigi::operator()(const edm4hep::SimTrackerHitCollection& simTrackerHits,
     }
 
     // Correcting for the propagation time
+    /*This correction subtracts out the geometric travel-time delay; so the corrected hitT reflects timing info 
+    closer to "when did something interesting happen," rather than "when did the signal happen to physically arrive here." */
     if (m_correctTimesForPropagation) {
+      debug() << "correcting for the propagation time ..." << endmsg; 
+      // travel time  = distance/speed; speed = speed of light (c); 1e6 : conversion from m/s to mm/ns 
       double dt = oldPos.r() / (TMath::C() / 1e6);
       hitT -= dt;
       debug() << "corrected hit at R: " << oldPos.r() << " mm by propagation time: " << dt << " ns to T: " << hitT
@@ -198,12 +240,20 @@ DDPlanarDigi::operator()(const edm4hep::SimTrackerHitCollection& simTrackerHits,
     }
 
     // Try to smear the hit position but ensure the hit is inside the sensitive region
+    /* .u(),.v() : returns the sensor's in-plane basis vectors expressed in 3D global cordinates.   
+    if i take one step of length 1 along this sensor's own u direction, which way does that correspond to in the detetcor's overall global x/y/z frame */
     dd4hep::rec::Vector3D u = surf->u();
     dd4hep::rec::Vector3D v = surf->v();
 
     // Get local coordinates on surface
     dd4hep::rec::Vector2D lv = surf->globalToLocal(dd4hep::mm * oldPos);
-    double uL = lv[0] / dd4hep::mm;
+
+    // sim hit's local position on the senosr in mm 
+    /* converting to local cordinates for smearing than directly applying the smear to the global x/y/z is necessary coz spatial resolution is a ppty of a detector's 
+    local geometry. The resolution characteristics are expressed in sensor's own local frame. If you wanna apply smearing to the global cordinates, you have to consatntly account
+    for how each indiuvidual senosr are rotated in 3d space. Going into local cordinates sidesteps taht complexity entirely and conversion to global cordiunates later will handle 
+    the rotation responsiblity internally by dd4hep than implementing it with hand.  */
+    double uL = lv[0] / dd4hep::mm; // divide by the dd4hep unit to convert back to plain mm from dd4hep::mm
     double vL = lv[1] / dd4hep::mm;
 
     bool acceptHit = false;
@@ -238,7 +288,7 @@ DDPlanarDigi::operator()(const edm4hep::SimTrackerHitCollection& simTrackerHits,
       } else {
         newPosTmp =
             (1. / dd4hep::mm) *
-            (surf->localToGlobal(dd4hep::rec::Vector2D((uL + uSmear) * dd4hep::mm, (vL + vSmear) * dd4hep::mm)));
+            (surf->localToGlobal(dd4hep::rec::Vector2D((uL + uSmear) * dd4hep::mm, (vL + vSmear) * dd4hep::mm))); // newPosTmp unit : plain mm. localToGloabl() : results in dd4hep internal units; divison to get in plain mm 
       }
 
       debug() << " hit at    : " << oldPos << " smeared to: " << newPosTmp << " uL: " << uL << " vL: " << vL
@@ -254,7 +304,7 @@ DDPlanarDigi::operator()(const edm4hep::SimTrackerHitCollection& simTrackerHits,
         ++(*m_histograms[diffu])[uSmear];
         ++(*m_histograms[diffv])[vSmear];
 
-        break;
+        break; // exits the while loop 
       }
 
       // debug() << "  hit at " << newPosTmp
@@ -269,7 +319,7 @@ DDPlanarDigi::operator()(const edm4hep::SimTrackerHitCollection& simTrackerHits,
     if (!acceptHit) {
       debug() << "hit could not be smeared within ladder after " << m_maxTries << "  tries: hit dropped" << endmsg;
       ++nDismissedHits;
-      continue;
+      continue; // moves to the next hit skippinh the histo fill, output creation etc 
     }
 
     auto trkHit = trkhitVec.create();
@@ -279,7 +329,9 @@ DDPlanarDigi::operator()(const edm4hep::SimTrackerHitCollection& simTrackerHits,
     trkHit.setPosition(newPos.const_array());
     trkHit.setTime(hitT);
     trkHit.setEDep(hit.getEDep());
-
+    // Computing the orientation angles
+    /* Storing theta/phi is a compact way to record "which way did this sensor's local axes point, 
+    in the detector's overall frame"*/
     float u_direction[2];
     u_direction[0] = u.theta();
     u_direction[1] = u.phi();
@@ -291,6 +343,8 @@ DDPlanarDigi::operator()(const edm4hep::SimTrackerHitCollection& simTrackerHits,
     debug() << " U[0] = " << u_direction[0] << " U[1] = " << u_direction[1] << " V[0] = " << v_direction[0]
             << " V[1] = " << v_direction[1] << endmsg;
 
+
+    // Storing the orienattion and resolution of the output hits 
     trkHit.setU(u_direction);
     trkHit.setV(v_direction);
     trkHit.setDu(resU);
@@ -307,8 +361,8 @@ DDPlanarDigi::operator()(const edm4hep::SimTrackerHitCollection& simTrackerHits,
     }
 
     auto association = thsthcol.create();
-    association.setTo(hit);
-    association.setFrom(trkHit);
+    association.setTo(hit);// truth hits/ sim hits
+    association.setFrom(trkHit); // digi hits 
 
     ++nCreatedHits;
   }

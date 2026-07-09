@@ -70,6 +70,7 @@
 
 enum { hu = 0, hv, hT, hitE, hitsAccepted, diffu, diffv, diffT, hSize };
 
+//class declaration 
 struct DDPlanarDigi final
     : k4FWCore::MultiTransformer<
           std::tuple<edm4hep::TrackerHitPlaneCollection, edm4hep::TrackerHitSimTrackerHitLinkCollection>(
@@ -78,6 +79,7 @@ struct DDPlanarDigi final
 
   StatusCode initialize() override;
 
+  // operator() : algo body; gaudi calls this once per event supplying input collections already read ffrom teh event store as arguments ans expects a tuple of the two output collections 
   std::tuple<edm4hep::TrackerHitPlaneCollection, edm4hep::TrackerHitSimTrackerHitLinkCollection>
   operator()(const edm4hep::SimTrackerHitCollection& simTrackerHits,
              const edm4hep::EventHeaderCollection& headers) const override;
@@ -89,15 +91,16 @@ private:
       this, "ResolutionU", {0.004}, "Resolution in the direction of u; either one per layer or one for all layers"};
   Gaudi::Property<std::vector<float>> m_resVLayer{
       this, "ResolutionV", {0.004}, "Resolution in the direction of v; either one per layer or one for all layers"};
+    //Timing resolution; disabled atm -1
   Gaudi::Property<std::vector<float>> m_resTLayer{
       this,
       "ResolutionT",
       {-1},
       "Resolution in the direction of t; either one per layer or one for all layers. If the single entry is negative, "
       "disable time smearing. "};
-  Gaudi::Property<bool> m_forceHitsOntoSurface{this, "ForceHitsOntoSurface", false,
+  Gaudi::Property<bool> m_forceHitsOntoSurface{this, "ForceHitsOntoSurface", true,
                                                "Project hits onto the surface in case they are not yet on the surface"};
-  Gaudi::Property<double> m_minEnergy{this, "MinEnergy", 0.0, "Minimum energy (GeV) of SimTrackerHit to be digitized"};
+  Gaudi::Property<double> m_minEnergy{this, "MinEnergy", 0.0, "Minimum energy (GeV) of SimTrackerHit to be digitized"}; // something like a threshold?
 
   Gaudi::Property<bool> m_useTimeWindow{
       this, "UseTimeWindow", false,
@@ -115,16 +118,19 @@ private:
   Gaudi::Property<std::string> m_geoSvcName{this, "GeoSvcName", "GeoSvc", "The name of the GeoSvc instance"};
   Gaudi::Property<int> m_maxTries{this, "MaxTries", 10, "Maximum number of tries to find a valid surface for a hit"};
   Gaudi::Property<size_t> m_cellIDBits{this, "CellIDBits", 64, "Number of bits to use for the cellID of the hits"};
-  const dd4hep::rec::SurfaceMap* surfaceMap;
-  std::array<std::unique_ptr<Gaudi::Accumulators::StaticRootHistogram<1>>, hSize> m_histograms;
+  const dd4hep::rec::SurfaceMap* surfaceMap; // something liek a lookuptable mapping cellID to geometric surfuce (plane position, orienattion, thickness) for every sensitive volume 
+  std::array<std::unique_ptr<Gaudi::Accumulators::StaticRootHistogram<1>>, hSize> m_histograms; // fixed sized arrays of 1d histos, sized to hsize (enum defined above)
+  // m_histograms is an array of 8 (coz hsize is at 8th count in the num list)  histos indexed by the enums. eg: m_histograms[hu]..  
   std::string m_collName;
 
   SmartIF<IGeoSvc> m_geoSvc;
   SmartIF<IUniqueIDGenSvc> m_uidSvc;
 
-  std::uint64_t m_mask{static_cast<std::uint64_t>(-1)};
+  //bitmask to be applied to cellID to remove the bits that are not used for the cellID . m_mask is set to a value that is literally all 1-bits (0xffffffffffffffff) 
+  std::uint64_t m_mask{static_cast<std::uint64_t>(-1)}; 
 };
 
+// Gaudi macro that registers the class in teh component factory so that it can be instatiated by name from the python config file 
 DECLARE_COMPONENT(DDPlanarDigi)
 
 #endif
