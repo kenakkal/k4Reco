@@ -54,9 +54,9 @@
  * @param TrackerHitCollectionName The name of output collection of smeared TrackerHits <br>
  * (default name VTXTrackerHits) <br>
  * @param ResolutionU resolution in direction of u (in mm) <br>
- * (default value 0.004) <br>
+ * (default value 0.003) <br>
  * @param ResolutionV Resolution in direction of v (in mm) <br>
- * (default value 0.004) <br>
+ * (default value 0.003) <br>
  * @param IsStrip whether the hits are 1 dimensional strip measurements <br>
  * (default value false)
  * @param Ladder_Number_encoded_in_cellID ladder number has been encoded in the cellID <br>
@@ -88,9 +88,9 @@ private:
   Gaudi::Property<std::string> m_subDetName{this, "SubDetectorName", "VXD", "Name of the subdetector"};
   Gaudi::Property<bool> m_isStrip{this, "IsStrip", false, "Whether the hits are 1D strip hits"};
   Gaudi::Property<std::vector<float>> m_resULayer{
-      this, "ResolutionU", {0.004}, "Resolution in the direction of u; either one per layer or one for all layers"};
+      this, "ResolutionU", {0.003}, "Resolution in the direction of u; either one per layer or one for all layers"};
   Gaudi::Property<std::vector<float>> m_resVLayer{
-      this, "ResolutionV", {0.004}, "Resolution in the direction of v; either one per layer or one for all layers"};
+      this, "ResolutionV", {0.003}, "Resolution in the direction of v; either one per layer or one for all layers"};
     //Timing resolution; disabled atm -1
   Gaudi::Property<std::vector<float>> m_resTLayer{
       this,

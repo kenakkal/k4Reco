@@ -23,10 +23,9 @@ import os
 
 id_service = UniqueIDGenSvc("UniqueIDGenSvc")
 
-#not sure why they are creating GeoSvc and UniqueIDGenSvc coz they are not explicitly added to ExtSvc in  ApplicationMgr
 geoservice = GeoSvc("GeoSvc")
 geoservice.detectors = ["Single_Layer_stave_detailed.xml"]
-geoservice.OutputLevel = DEBUG
+geoservice.OutputLevel = INFO
 geoservice.EnableGeant4Geo = False
 
 digi = DDPlanarDigi()
@@ -60,5 +59,5 @@ ApplicationMgr(TopAlg=[digi],
                EvtSel="NONE",
                EvtMax=-1,
                ExtSvc=[EventDataSvc("EventDataSvc"), root_hist_svc],
-               OutputLevel=DEBUG,
+               OutputLevel=INFO,
                )
