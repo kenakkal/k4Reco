@@ -36,10 +36,18 @@
 // outside-in. They additionally contain minimal detector information (id, layer and side)
 // ------------------------------------------------------------------------------------
 
+/*KDCluster is a tracking hit class. Every TrackerHitPlane object in ROOT file gets converted into one of this before any 
+pattern recogonition happens. It is deliberately lighweight (just numbers, no heavy geometry objects) as millions of these 
+get created and compared during the search*/
+
 class KDCluster {
 public:
   // Constructors, main initialisation is with tracker hit
   KDCluster() = default;
+  
+  /* constructor initialiser list :takes in the raw hits (x,y,z) from edm4hep:TrackerHitPlane and 
+  copies them unchanged and is told whether this hit came from endcap or not */
+  
   KDCluster(const edm4hep::TrackerHitPlane& hit, bool endcap, bool forward = false)
       : m_x(hit.getPosition()[0]), m_y(hit.getPosition()[1]),
         m_z(hit.getPosition()[2]), // Store the (unaltered) z position
@@ -51,21 +59,29 @@ public:
     m_u = m_x * radius2Inv;
     m_v = m_y * radius2Inv;
     // Note the position in polar co-ordinates
-    m_r = 1. / radius;
-    m_theta = atan2(m_v, m_u) + M_PI;
-    m_radius = radius;
+    m_r = 1. / radius; /* confirmal polar radius; distance of (u,v) from origin in conformal space. m_r is not a real-space distance.   
+    How far out the point has moved in the conformal space. note the inversion -> hits close to the beam (smaller radius) end up far from the origin in uv space and vice versa 
+    */
+    m_theta = atan2(m_v, m_u) + M_PI; // polar angle shifted by Pi to stay in the covenient positive range; angular position of the hit after the conformal mapping 
+    m_radius = radius; // cartesian xy radius
     // Get the error in the conformal (uv) plane
     // This is the xy error projected. Unfortunately, the
     // dU is not always aligned with the xy plane, it might
     // be dV. Check and take the smallest
+    
+    /* this code block picks up the smaller of the sensor's two local measurement errors (Du, Dv)to represent 
+    the transverse error and the larger one becomes teh z-direction error. This is done coz the senor's local u/v 
+    is not guarenteed to align with global x-y/z . Rough way of guessing which local error coeesponds to which 
+    global direction*/
+
     if (hit.getDv() < m_error) {
-      m_error = hit.getDv();
+      m_error = hit.getDv(); // sensor's position uncertainity in the tranverse direction; picked to be the smaller value of the sesnsor's local measurement errors
       m_errorZ = hit.getDu();
     } else {
       m_error = hit.getDu();
       m_errorZ = hit.getDv();
     }
-
+    // converts real-space error into conformal space error (m_errorU, m_errorV)
     const double sinTheta = sin(m_theta);
     const double cosTheta = cos(m_theta);
     if (endcap) {
@@ -78,16 +94,23 @@ public:
       m_errorZ = 0.25;
 
     } else {
+      //m_errorU = m_errorX * m_r^2 (u = x/r^2; m_r = 1/r)
       m_errorU = m_error * m_r * m_r * sinTheta;
       m_errorV = m_error * m_r * m_r * cosTheta;
+
+      // m_error is pointing perpendicular to the hit. the two code lines below are the errors on global X,Y 
       m_errorX = m_error * sinTheta;
       m_errorY = m_error * cosTheta;
     }
   }
+  // copy constructor, = delete -> forbids it entirely 
   KDCluster(const KDCluster&) = delete;
+  // copy assignment forbidden 
   KDCluster& operator=(const KDCluster&) = delete;
+  // move constructor and move assignment constructor; = default tells teh compiler to generate the normal version; move does not copy the data, it simply transfers the ownership from a temp/expiring object into a new one, leavaing old one empty 
   KDCluster(KDCluster&&) = default;
   KDCluster& operator=(KDCluster&&) = default;
+  // destructor function 
   ~KDCluster() = default;
 
   double getX() const { return m_x; }
@@ -132,6 +155,12 @@ public:
   bool endcap() const { return m_endcap; }
 
   // Check if another hit is on the same detecting layer
+  // compares other hit  with this hit's own fields
+  /* a real particle passing through a barrel detector normally leaves at most one hit per physical layer. 
+  So if two KDClusters report the same subdetector+side+layer, they almost certainly can't both be legitimate 
+  consecutive hits on the same track. This function is a cheap sanity filter used when the algorithm is deciding
+  whether two hits are allowed to be linked into a Cell — reject same-layer pairings early, before doing any of 
+  the more expensive u-v/R-z geometric checks.*/
   bool sameLayer(const std::shared_ptr<KDCluster> kdhit) const {
     if (kdhit->getSubdetector() == m_subdet && kdhit->getSide() == m_side && kdhit->getLayer() == m_layer)
       return true;
@@ -139,6 +168,9 @@ public:
   }
 
   // Check if another hit is on the same sensor of the same detecting layer
+  /* Each == produces a bool (true/false) on its own. Chaining them with && produces one more bool — true only if 
+  every comparison is true. Since the function's return type is already bool, you can just return that expression directly, 
+  instead of writing an if condition */
   bool sameSensor(const std::shared_ptr<KDCluster> kdhit) const {
     return kdhit->getLayer() == m_layer && kdhit->getSubdetector() == m_subdet && kdhit->getSide() == m_side &&
            kdhit->getModule() == m_module && kdhit->getSensor() == m_sensor;
@@ -171,7 +203,13 @@ private:
   bool m_forward = false;
 };
 
+/* typedef creates an alias - new name for an existing type. This line doesn't create anything new at runtime; 
+it just tells the compiler "from now on, whenever you see SKDCluster in this codebase, treat it as meaning exactly 
+std::shared_ptr<KDCluster>." So SKDCluster and std::shared_ptr<KDCluster> are 100% interchangeable — same type, just 
+a shorter name.*/
 typedef std::shared_ptr<KDCluster> SKDCluster;
+
+/*SharedKDClusters means std::vector<std::shared_ptr<KDCluster>> — a resizable vector of shared-pointers-to-hits.*/
 typedef std::vector<SKDCluster> SharedKDClusters;
 
 #endif
