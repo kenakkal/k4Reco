@@ -45,7 +45,14 @@
 // nn2.nearestNeighbours(<TestBeamCluster> seed, N, result);
 // Where N is the number of nearest neighbours to be returned
 
-// Define some typedefs for use later
+// this is the nearest neighbour serach structure
+/* kdtree is a data structure for fast nearest neighbour search. For a given point, find the N closest points (or all points withion some radius) 
+without checking every single other point one by one. when the algorithm builds Cells (hit pairs), how does it avoid comparing every hit against 
+every other hit? This is the answer: rather than brute-force pairing, the code queries a KDTree for "give me the hits near this one," which 
+is dramatically faster once you have many thousands of hits.
+*/
+
+// Define some typedefs/aliases for use later
 typedef std::vector<SKDCluster> VecCluster;
 
 // build the class
@@ -53,14 +60,18 @@ class KDTree {
 public:
   typedef kdtree2::KDTreeResultVector KDTreeResultVector;
 
-  explicit KDTree(const SharedKDClusters& pts, double overlapTheta, bool sort);
+  explicit KDTree(const SharedKDClusters& pts, double overlapTheta, bool sort); //explicit -> no implicit conversion allowed for this constructor
 
+  // all copying and mooving forbidden 
   KDTree(const KDTree&) = delete;
   KDTree& operator=(const KDTree&) = delete;
   KDTree(KDTree&&) = delete;
   KDTree& operator=(KDTree&&) = delete;
-  ~KDTree();
+  ~KDTree(); // real non-default destrucrtor, as the class manually holds raw pointers (tree, treetheta) that must be explicitly deleted to avoid memory leak 
 
+  /* pt:seed/query point; N: how many nearestr neighbours to return; result:output parameter;
+  filter - std::function - a genral purpose wrapper for any callable with a default lambda that always returns false -> 
+  by default nothing gets filtered out */
   void nearestNeighbours(
       SKDCluster const& pt, int N, SharedKDClusters& result,
       std::function<bool(SKDCluster const&)> const& filter = [](SKDCluster const&) { return false; });
@@ -75,6 +86,9 @@ public:
       std::function<bool(SKDCluster const&)> const& filter = [](SKDCluster const&) { return false; });
 
 private:
+/* 2 helper functions: kdtree2 returns results in its own native format (KDTreeResultVector — typically indices into the original data array, 
+plus distances), and these functions translate that into the project's own SharedKDClusters — looking up the actual SKDCluster object each
+index corresponds to, and applying filter along the way to drop excluded hits before they ever reach the caller. */
   void transformResults(
       KDTreeResultVector& vec, SharedKDClusters& result,
       std::function<bool(SKDCluster const&)> const& filter = [](SKDCluster const&) { return false; });
@@ -83,12 +97,12 @@ private:
       std::function<bool(SKDCluster const&)> const& filter = [](SKDCluster const&) { return false; });
 
   static const int k;
-  boost::multi_array<double, 2> array{};
+  boost::multi_array<double, 2> array{}; // 2d array of doiubles 
   boost::multi_array<double, 2> arrayTheta{};
-  kdtree2::KDTree* tree = nullptr;
+  kdtree2::KDTree* tree = nullptr; // raw pointers to the actual kdtree2 library objects 
   kdtree2::KDTree* treeTheta = nullptr;
-  SharedKDClusters det{};
-  std::map<double, SKDCluster> thetaLookup{};
+  SharedKDClusters det{}; //copy of the input hit vector 
+  std::map<double, SKDCluster> thetaLookup{}; // LUT mapping angle value directly to its hit
   bool sortTreeResults = true;
 };
 

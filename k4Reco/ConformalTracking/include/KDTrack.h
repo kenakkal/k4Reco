@@ -26,6 +26,7 @@
 #include <stdexcept>
 #include <vector>
 
+// forward declaration
 class TH2F;
 
 // ------------------------------------------------------------------------------------
@@ -33,7 +34,9 @@ class TH2F;
 // conformal space. The class holds a vector of KDCluster objects (the hits attached to
 // the track) and a psuedo-kalman filter object.
 // ------------------------------------------------------------------------------------
+/* KDTrack.h : fitted track object. Once a chain of Cells is deemed the best candidate, its hits get bundled into a KDTRack and actually fit as a line  */
 
+// forward declaration : tells the compiler "this type exits" without pulling in the full defenition (no #include either). Thi si slegal coz this header only uses them as pointers
 class KalmanTrack;
 
 class KDTrack {
@@ -41,20 +44,20 @@ public:
   //--- Constructor and destructor
   KDTrack(Parameters const& par);
 
-  KDTrack(const KDTrack&) = default;
-  KDTrack& operator=(const KDTrack&) = delete;
-  KDTrack(KDTrack&&) = default;
-  KDTrack& operator=(KDTrack&&) = default;
-  ~KDTrack() = default;
+  KDTrack(const KDTrack&) = default; // copy constructor
+  KDTrack& operator=(const KDTrack&) = delete; // copy assignment; forbidden to overwrite an existing tracks content via =
+  KDTrack(KDTrack&&) = default; // move constructor 
+  KDTrack& operator=(KDTrack&&) = default; // move assignment 
+  ~KDTrack() = default;//destructor
 
   //--- Functions to add and remove clusters
-  void add(SKDCluster cluster) { m_clusters.push_back(cluster); }
-  void insert(SKDCluster cluster) { m_clusters.insert(m_clusters.begin(), cluster); }
+  void add(SKDCluster cluster) { m_clusters.push_back(cluster); } // appends the cluster to the end
+  void insert(SKDCluster cluster) { m_clusters.insert(m_clusters.begin(), cluster); } //prepends to the front
   void remove(int clusterN) {
     if (clusterN < 0 || clusterN >= static_cast<int>(m_clusters.size())) {
       throw std::out_of_range("KDTrack::remove: clusterN out of range");
     }
-    m_clusters.erase(m_clusters.begin() + clusterN);
+    m_clusters.erase(m_clusters.begin() + clusterN); // .begin() on any std:: vector returns an iterator of teh first element in a vector; vector iterator support arithematics
   }
 
   //--- Fit functions
@@ -62,7 +65,7 @@ public:
   double calculateChi2SZ(TH2F* histo = NULL, bool debug = false);
   void linearRegression(bool highPTfit = false);
   void linearRegressionConformal(bool debug = false);
-  double sinc(double) const;
+  double sinc(double) const; // sinc function : sin(x)/x 
   void FillDistribution(TH2F*);
 
   //--- Functions to set and return member variables
@@ -112,7 +115,7 @@ public:
   SharedKDClusters m_clusters{};
   bool m_kalmanFitForward = true;
 };
-
+// aliases. Note the unique_ptr here. Once a candidate chain has been fitted into a real KDTrack, it's held with sole ownership, no sharing needed. Thus unique_pte is used 
 typedef std::vector<std::unique_ptr<KDTrack>> UniqueKDTracks;
 typedef std::unique_ptr<KDTrack> UKDTrack;
 
