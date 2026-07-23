@@ -96,6 +96,7 @@ CT_MAX_DIST = 0.05
 
 # The keys (VXDBarrel, VXDEndcap...) are simply names and are not passed to ConformalTracking
 parameters = {
+        #tightest cuts, builds fresh tracks from just the vertex barrel
         "VXDBarrel": {
             "collections": ["VXDTrackerHits"],
             "params": {
@@ -110,6 +111,7 @@ parameters = {
             "flags": ["HighPTFit", "VertexToTracker"],
             "functions": ["CombineCollections", "BuildNewTracks"],
         },
+        #same tight cuts but extends (not builds) into ec
         "VXDEncap": {
             "collections": ["VXDEndcapTrackerHits"],
             "params": {
@@ -124,6 +126,7 @@ parameters = {
             "flags": ["HighPTFit", "VertexToTracker"],
             "functions": ["CombineCollections", "ExtendTracks"],
         },
+        #looser cuts; builds new tracks combining both barrel+ec collection togther, presumably catching tracks the tight first pass missed
         "LowerCellAngle1": {
             "collections": ["VXDTrackerHits", "VXDEndcapTrackerHits"],
             "params": {
@@ -138,6 +141,7 @@ parameters = {
             "flags": ["HighPTFit", "VertexToTracker", "RadialSearch"],
             "functions": ["CombineCollections", "BuildNewTracks"],
         },
+        #more looser cuts, no cllections; doesnt read any new hit collection, rebuilds and sorts using whatver's found; final cleaup pass over the VTX det only tracks
         "LowerCellAngle2": {
             "collections": [],
             "params": {
@@ -152,6 +156,7 @@ parameters = {
             "flags": ["HighPTFit", "VertexToTracker", "RadialSearch"],
             "functions": ["BuildNewTracks", "SortTracks"],
         },
+        #extends everything found so far out into the full outer tracker collections
         "Tracker": {
             "collections": ["ITrackerHits", "OTrackerHits", "ITrackerEndcapHits", "OTrackerEndcapHits"],
             "params": {
@@ -166,6 +171,7 @@ parameters = {
             "flags": ["HighPTFit", "VertexToTracker", "RadialSearch"],
             "functions": ["CombineCollections", "ExtendTracks"],
         },
+        # a final pass with OnlyZSchi2cut set and no HighPTFit, over all collections combined, specifically for displaced-vertex tracks (tracks not originating near the true IP) —  a track with real transverse impact parameter doesn't map to a perfectly straight u-v line, so this step is likely handling exactly that residual-curvature case (recall KDTrack::m_quadratic).
         "Displaced": {
             "collections": ["VXDTrackerHits", "VXDEndcapTrackerHits", "ITrackerHits", "OTrackerHits", "ITrackerEndcapHits", "OTrackerEndcapHits"],
             "params": {
