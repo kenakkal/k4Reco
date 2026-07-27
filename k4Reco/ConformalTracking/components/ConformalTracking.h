@@ -22,16 +22,16 @@
 #include "KDTree.h"
 #include "Parameters.h"
 
-#include "GaudiDDKalTest.h"
+#include "GaudiDDKalTest.h" //kalman-filter track-fitting helper class from Gaudi/DD4hep
 
-#include <DDSegmentation/BitFieldCoder.h>
+#include <DDSegmentation/BitFieldCoder.h> // cellID decoding class
 
 #include <edm4hep/MCParticleCollection.h>
 #include <edm4hep/TrackCollection.h>
 #include <edm4hep/TrackerHitPlaneCollection.h>
 #include <edm4hep/TrackerHitSimTrackerHitLinkCollection.h>
 
-#include <k4FWCore/Transformer.h>
+#include <k4FWCore/Transformer.h> //base class on which the whole algo is built on
 #include <k4Interface/IGeoSvc.h>
 
 #include <Gaudi/Accumulators/RootHistogram.h>
@@ -46,21 +46,22 @@
 #include <string>
 #include <vector>
 
+//forward declaration
 class IGeoSvc;
-
+/* k4FWCore::Transformer<Output(input1, input2, input3)> */
 struct ConformalTracking final : k4FWCore::Transformer<edm4hep::TrackCollection(
                                      const std::vector<const edm4hep::TrackerHitPlaneCollection*>&,
                                      const std::vector<const edm4hep::MCParticleCollection*>&,
                                      const std::vector<const edm4hep::TrackerHitSimTrackerHitLinkCollection*>&)> {
   ConformalTracking(const std::string& name, ISvcLocator* svcLoc);
 
-  StatusCode initialize() override;
-  StatusCode finalize() override;
+  StatusCode initialize() override; // runs once at the job start: Python step config gets parsed into Parametes object, geo gets loaded, histos booked
+  StatusCode finalize() override; // runs once at job end : cleanup, writing summary 
 
   edm4hep::TrackCollection
   operator()(const std::vector<const edm4hep::TrackerHitPlaneCollection*>&,
              const std::vector<const edm4hep::MCParticleCollection*>&,
-             const std::vector<const edm4hep::TrackerHitSimTrackerHitLinkCollection*>&) const override;
+             const std::vector<const edm4hep::TrackerHitSimTrackerHitLinkCollection*>&) const override; //runs once per event; per-event tracking logic
 
 private:
   // Cell creation
@@ -155,14 +156,20 @@ private:
   Gaudi::Property<std::vector<std::string>> m_inputVertexEndcapCollections{
       this, "VertexEndcapHitCollectionNames", {}, "Name of the TrackerHit input collections from the Vertex Endcap"};
 
+  // handle to geo service, resolved during initialise() via m_geoSvcName giving acess to the full DD4hep detetcor description
   SmartIF<IGeoSvc> m_geoSvc;
 
   // Track fit parameters
-  mutable double m_initialTrackError_d0 = 0.0;
-  mutable double m_initialTrackError_phi0 = 0.0;
-  mutable double m_initialTrackError_omega = 0.0;
-  mutable double m_initialTrackError_z0 = 0.0;
-  mutable double m_initialTrackError_tanL = 0.0;
+  /* operator() is declared as const which implies that the member variables are forbidden from 
+  modiying - the compiler enforces this. But operator() clearly needs to update per-event state 
+  (event ctr; histo fills, track-fit parameters); by declaraing a member variable as mutable you 
+  are telling teh compiler that this specific memeber is allowed to be modified even from a const method
+  */
+  mutable double m_initialTrackError_d0 = 0.0; // impact parameter 
+  mutable double m_initialTrackError_phi0 = 0.0; // azimuthal angle
+  mutable double m_initialTrackError_omega = 0.0; // curvature
+  mutable double m_initialTrackError_z0 = 0.0; // z-position
+  mutable double m_initialTrackError_tanL = 0.0; // dip-angle-related slope 
   mutable double m_maxChi2perHit = 0.0;
   mutable double m_magneticField = 0.0;
 
@@ -234,7 +241,10 @@ private:
   GaudiDDKalTest m_ddkaltest{this};
   mutable int m_eventNumber = 0;
 
-  dd4hep::DDSegmentation::BitFieldCoder m_encoder;
+  dd4hep::DDSegmentation::BitFieldCoder m_encoder; // used to decode each hit's cellID into subdet/side/layer/module/sensor for KDCluster::setDetectorInfo.
 };
 
+/* A Gaudi macro which registers this class as an instantiable, named componenet with the FW 
+which is precisely what makes "from Configurables import ConformalTracking" in the Python 
+config work at all.*/
 DECLARE_COMPONENT(ConformalTracking)
