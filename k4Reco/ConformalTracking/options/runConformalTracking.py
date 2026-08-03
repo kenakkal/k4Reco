@@ -188,7 +188,7 @@ parameters = {
         },
     }
 
-configure_conformal_tracking_steps(tracking, parameters)
+configure_conformal_tracking_steps(tracking, parameters) # flow of control goes to conformal_tracking_utils/utils.py which sets m_stepCollections by the time initialize() runs
 
 hps = RootHistSvc("HistogramPersistencySvc")
 root_hist_svc = RootHistoSink("RootHistoSink")

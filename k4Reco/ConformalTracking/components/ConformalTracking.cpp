@@ -90,19 +90,31 @@ StatusCode ConformalTracking::initialize() {
   // Setting the streamlog output is necessary to avoid lots of overhead.
   // Otherwise it would be equivalent to running with every debug message
   // being computed
+  /* streamlog : older logging lib. The codeblock is configuring its verbosity level to match
+  the gaudi output level. Without this code block every debug-level message will get computed 
+  (string-built) even if it is not printed which is wasteful  */
   streamlog::out.init(std::cout, "");
   streamlog::logscope* scope = new streamlog::logscope(streamlog::out);
   setStreamlogOutputLevel(this, scope);
 
+  // fetch the gep service 
   m_geoSvc = serviceLocator()->service(m_geoSvcName);
   if (!m_geoSvc) {
     error() << "Unable to retrieve GeoSvc" << endmsg;
     return StatusCode::FAILURE;
   }
+  // look up for the encoding string constant by the name "GlobalTrackerReadoutID" and build a BitFieldCoder from it
   std::string cellIDEncodingString = m_geoSvc->constantAsString(m_encodingStringVariable.value());
   m_encoder = dd4hep::DDSegmentation::BitFieldCoder(cellIDEncodingString);
 
-  const auto& locs = inputLocations(0);
+  //Resolving collection names into integer indices 
+
+  /* inputLocations(N): gives the input collection in the constructor at slot N 
+    inputLocation(0): const std::vector<const edm4hep::TrackerHitPlaneCollection*>
+    and from the python jo file : TrackerHitCollectionNames property - full list of 
+    hit collection names set in python jo. 
+  */
+  const auto& locs = inputLocations(0); // gets the list of tracker hit collection names L54 in python JO
 
   std::vector<int> m_vertexBarrelHits, m_vertexEndcapHits, m_vertexCombinedHits, m_trackerHits, m_allHits;
 
@@ -111,7 +123,7 @@ StatusCode ConformalTracking::initialize() {
     if (it == locs.end()) {
       throw std::runtime_error("Collection " + str + " not found in input collections");
     }
-    m_vertexBarrelHits.push_back(std::distance(locs.begin(), it));
+    m_vertexBarrelHits.push_back(std::distance(locs.begin(), it)); // interger index gets pushed back
   }
 
   for (const auto& str : m_inputVertexEndcapCollections) {
@@ -123,6 +135,8 @@ StatusCode ConformalTracking::initialize() {
   }
 
   m_vertexCombinedHits = m_vertexBarrelHits;
+  // insert (pos, first, last); pos: where to insert, first, last :source range 
+  // vertexCombined = vertexBarrel + vertexEndcap
   m_vertexCombinedHits.insert(m_vertexCombinedHits.end(), m_vertexEndcapHits.begin(), m_vertexEndcapHits.end());
 
   for (const auto& str : m_inputMainTrackerHitCollections) {
@@ -138,7 +152,8 @@ StatusCode ConformalTracking::initialize() {
   }
 
   // Default parsing
-  if (m_stepCollections.empty()) {
+  /* m_stepCollections is set by configure_conformal_tracking_steps(tracking, parameters) in python JO before initialise() is run. So it is never empty */
+  if (m_stepCollections.empty()) { 
     int step = 0;
     // Build tracks in the vertex barrel
     m_stepParameters.emplace_back(m_vertexBarrelHits, m_maxCellAngle, m_maxCellAngleRZ, m_chi2cut, m_minClustersOnTrack,
@@ -197,6 +212,60 @@ StatusCode ConformalTracking::initialize() {
                                   /*vtt*/ false, /*kalmanFitForward*/ true, step++,
                                   /*combine*/ true, /*build*/ true, /*extend*/ false, /*sort*/ false);
   } else {
+    /* i = 0 corresponds to VXDBarrel's data and i = 5 is Displaced's data (L98 py JO)  
+    i=0: VXDBarrel
+    i=1: VXDEncap
+    i=2: LowerCellAngle1
+    i=3: LowerCellAngle2
+    i=4: Tracker
+    i=5: Displaced
+
+    tracking.stepCollections = [
+      ["VXDTrackerHits"],                                                                      # i=0
+      ["VXDEndcapTrackerHits"],                                                                 # i=1
+      ["VXDTrackerHits", "VXDEndcapTrackerHits"],                                               # i=2
+      [],                                                                                        # i=3
+      ["ITrackerHits", "OTrackerHits", "ITrackerEndcapHits", "OTrackerEndcapHits"],              # i=4
+      ["VXDTrackerHits", "VXDEndcapTrackerHits", "ITrackerHits", "OTrackerHits",
+        "ITrackerEndcapHits", "OTrackerEndcapHits"],                                              # i=5
+    ]
+
+    tracking.stepParametersNames = [
+      ["MaxCellAngle", "MaxCellAngleRZ", "Chi2Cut", "MinClustersOnTrack", "MaxDistance", "SlopeZRange", "HighPTCut"],  # i=0
+      ["MaxCellAngle", "MaxCellAngleRZ", "Chi2Cut", "MinClustersOnTrack", "MaxDistance", "SlopeZRange", "HighPTCut"],  # i=1
+      ["MaxCellAngle", "MaxCellAngleRZ", "Chi2Cut", "MinClustersOnTrack", "MaxDistance", "SlopeZRange", "HighPTCut"],  # i=2
+      ["MaxCellAngle", "MaxCellAngleRZ", "Chi2Cut", "MinClustersOnTrack", "MaxDistance", "SlopeZRange", "HighPTCut"],  # i=3
+      ["MaxCellAngle", "MaxCellAngleRZ", "Chi2Cut", "MinClustersOnTrack", "MaxDistance", "SlopeZRange", "HighPTCut"],  # i=4
+      ["MaxCellAngle", "MaxCellAngleRZ", "Chi2Cut", "MinClustersOnTrack", "MaxDistance", "SlopeZRange", "HighPTCut"],  # i=5
+    ]
+
+    tracking.stepParametersValues = [
+      [0.01, 0.01, 100, 4, 0.05, 10.0, 10.0],    # i=0  (CT_MAX_DIST = 0.05)
+      [0.01, 0.01, 100, 4, 0.05, 10.0, 10.0],    # i=1
+      [0.05, 0.05, 100, 4, 0.05, 10.0, 10.0],    # i=2
+      [0.1,  0.1,  2000, 4, 0.05, 10.0, 10.0],   # i=3
+      [0.1,  0.1,  2000, 4, 0.05, 10.0, 1.0],    # i=4  (note: HighPTCut = 1.0 here, not 10.0)
+      [0.1,  0.1,  1000, 5, 0.015, 10.0, 10.0],  # i=5  (MinClustersOnTrack=5, MaxDistance=0.015 — both differ from every other step)
+    ]
+    
+    tracking.stepParametersFlags = [
+      ["HighPTFit", "VertexToTracker"],                              # i=0
+      ["HighPTFit", "VertexToTracker"],                              # i=1
+      ["HighPTFit", "VertexToTracker", "RadialSearch"],              # i=2
+      ["HighPTFit", "VertexToTracker", "RadialSearch"],              # i=3
+      ["HighPTFit", "VertexToTracker", "RadialSearch"],              # i=4
+      ["OnlyZSchi2cut", "RadialSearch"],                              # i=5 — the only step without HighPTFit
+    ]
+
+    tracking.stepParametersFunctions = [
+      ["CombineCollections", "BuildNewTracks"],   # i=0
+      ["CombineCollections", "ExtendTracks"],     # i=1
+      ["CombineCollections", "BuildNewTracks"],   # i=2
+      ["BuildNewTracks", "SortTracks"],           # i=3 — note: no CombineCollections, consistent with empty collections above
+      ["CombineCollections", "ExtendTracks"],     # i=4
+      ["CombineCollections", "BuildNewTracks"],   # i=5
+    ]
+    */
     for (size_t i = 0; i < m_stepCollections.size(); i++) {
       const auto& collections = m_stepCollections[i];
       const auto& parNames = m_stepParametersNames[i];
@@ -249,7 +318,7 @@ StatusCode ConformalTracking::initialize() {
         }
       }
 
-      highPT = std::find(flags.begin(), flags.end(), "HighPTFit") != flags.end();
+      highPT = std::find(flags.begin(), flags.end(), "HighPTFit") != flags.end(); // is the string "HighPTFit" present in the flags list: true or false
       OnlyZS = std::find(flags.begin(), flags.end(), "OnlyZSchi2cut") != flags.end();
       rSearch = std::find(flags.begin(), flags.end(), "RadialSearch") != flags.end();
       vtt = std::find(flags.begin(), flags.end(), "VertexToTracker") != flags.end();
@@ -261,12 +330,16 @@ StatusCode ConformalTracking::initialize() {
       extend = std::find(functions.begin(), functions.end(), "ExtendTracks") != functions.end();
       sort = std::find(functions.begin(), functions.end(), "SortTracks") != functions.end();
 
+      /* constructs parameters object for each step (i = 0-5)
+      emplace_back constructs new parameters object diretcly inside m_stepParameters
+      */
       m_stepParameters.emplace_back(indexes, maxCellAngle, maxCellAngleRZ, chi2cut, minClustersOnTrack, maxDistance,
                                     slopeZRange, highPTcut, highPT, OnlyZS, rSearch, vtt, kalmanFitForward, i, combine,
                                     build, extend, sort);
     }
   }
 
+  //Kalman fitter setup 
   m_ddkaltest.init();
   m_ddkaltest.setEncoder(m_encoder);
 
@@ -343,7 +416,9 @@ StatusCode ConformalTracking::initialize() {
 
   return StatusCode::SUCCESS;
 }
-
+/* definition of operator(). return type: edm4hep::TrackCollection - output tracks built 
+and returned fresh each event
+*/
 edm4hep::TrackCollection ConformalTracking::operator()(
 
     const std::vector<const edm4hep::TrackerHitPlaneCollection*>& trackerHits,
@@ -365,15 +440,20 @@ edm4hep::TrackCollection ConformalTracking::operator()(
   //
   // Where several paths are possible back to the seed position, the candidate with lowest chi2/ndof is chosen.
   //------------------------------------------------------------------------------------------------------------------
-
-  auto outputTrackCollection = edm4hep::TrackCollection();
+  
+  // setting up fresh collections/containers
+  auto outputTrackCollection = edm4hep::TrackCollection(); // ehat operator() will return
   auto debugHitCollection = edm4hep::TrackerHitPlaneCollection();
-  debugHitCollection.setSubsetCollection();
+  debugHitCollection.setSubsetCollection(); // holds refs to hits owned elsewhere 
 
   // Make the collection of conformal hits that will be used, with a link back to
   // the corresponding tracker hit.
 
-  // Collections to be stored throughout the tracking
+  // Collections to be stored throughout the tracking; empty for now, gets filled as this function runs
+  /* collectionClusters: maps a collection index to the list of KDClusters bulit from that 
+  collection's hits 
+    kdClusterMap: given a KDCluster find the OG  edm4hep::TrackerHitPlane it came from
+  */
   std::map<size_t, SharedKDClusters> collectionClusters;       // Conformal hits
   std::map<SKDCluster, edm4hep::TrackerHitPlane> kdClusterMap; // Their link to "real" hits
 
@@ -382,15 +462,16 @@ edm4hep::TrackCollection ConformalTracking::operator()(
   // std::map<MCParticle*, bool>             reconstructed;  // Check for MC particles
   // SharedKDClusters                        debugHits;      // Debug hits for plotting
 
-  // Create the conformal hit collections for each tracker hit collection (and save the link)
+  // Create the conformal hit collections for each tracker hit collection (VXDTrackerHits, VXDEndcapTrackerHits,ITrackerHits,OTrackerHits,ITrackerEndcapHits, OTrackerEndcapHits) (and save the link)
   for (size_t iColl = 0; iColl < trackerHits.size(); iColl++) {
     const auto& collection = trackerHits[iColl];
     info() << "Processing collection " << inputLocations("TrackerHitCollectionNames")[iColl] << "with size "
            << collection->size() << endmsg;
     // Loop over tracker hits and make conformal hit collection
-    SharedKDClusters tempClusters;
+    SharedKDClusters tempClusters; // to hold the collection's converted hits
+    // loop over every raw hit in a collection
     for (size_t iHit = 0; iHit < collection->size(); iHit++) {
-      const auto& hit = (*collection)[iHit];
+      const auto& hit = (*collection)[iHit];                                   
       // Get subdetector information and check if the hit is in the barrel or endcaps
       // Hardcoded from the ILD detector
       // int  subdet   = m_encoder[lcio::LCTrackerCellID::subdet()];
@@ -410,7 +491,7 @@ edm4hep::TrackCollection ConformalTracking::operator()(
       // TODO: Hardcoded from the ILD detector
       // if (side != ILDDetID::barrel) {
       //   if (side == ILDDetID::fwd)
-      if (side != 0) {
+      if (side != 0) { // side == 0: barrel
         isEndcap = true;
         if (side == 1)
           forward = true;
@@ -450,6 +531,10 @@ edm4hep::TrackCollection ConformalTracking::operator()(
       //   }
       // }
     }
+    /* once every hit in this collection is converted, the whole tempClusters list 
+    gets stored in collectionClusters, keyed by collection index. So after this loop 
+    finishes, collectionClusters[iColl] holds every KDCluster built from the input 
+    collection iColl*/
     collectionClusters[iColl] = tempClusters;
   }
 
@@ -572,9 +657,9 @@ edm4hep::TrackCollection ConformalTracking::operator()(
   // removed from the seeding collections once tracks have been built
 
   // The final vector of conformal tracks
-  UniqueKDTracks conformalTracks;
-  SharedKDClusters kdClusters;
-  UKDTree nearestNeighbours = nullptr;
+  UniqueKDTracks conformalTracks; // total # of tracks found so far, across all steps
+  SharedKDClusters kdClusters; // currently "available" (not-yet-claimed-by-a-track) hits, carried forward from step to step
+  UKDTree nearestNeighbours = nullptr; // KDTree built over those avaialable hits
 
   debug() << "m_stepParameters.size() " << m_stepParameters.size() << endmsg;
   for (const auto& parameters : m_stepParameters) {
@@ -2414,6 +2499,8 @@ void ConformalTracking::buildNewTracks(UniqueKDTracks& conformalTracks, SharedKD
   }
 }
 
+/* kdClusters, nearestNeighnours, conformalTracks - passed as non-const reference. 
+runStep() is expected to modify them.   */
 void ConformalTracking::runStep(SharedKDClusters& kdClusters, UKDTree& nearestNeighbours,
                                 UniqueKDTracks& conformalTracks,
                                 std::map<size_t, SharedKDClusters> const& collectionClusters,
