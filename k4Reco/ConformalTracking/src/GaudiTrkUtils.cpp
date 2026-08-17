@@ -75,7 +75,7 @@ int GaudiTrkUtils::createFinalisedLCIOTrack(GaudiDDKalTestTrack& marlinTrk,
     return 1;
 
   int return_error = 0;
-  edm4hep::TrackState pre_fit(0, 0, 0, 0, 0, 0, 0, {}, initial_cov_for_prefit);
+  edm4hep::TrackState pre_fit(0, 0, 0, 0, 0, 0, 0, {}, initial_cov_for_prefit); // rough starting estimate
   return_error = createPrefit(hit_list, pre_fit, bfield_z);
   // m_thisAlg->info() << " **** createFinalisedLCIOTrack - created pre-fit: " <<  toString( &pre_fit )  << endmsg ;
 
@@ -106,7 +106,7 @@ int GaudiTrkUtils::createFinalisedLCIOTrack(GaudiDDKalTestTrack& marlinTrk,
   int error = finaliseLCIOTrack(marlinTrk, track, hit_list, fit_direction);
   return error;
 }
-
+/* createPrefit gives you a rough starting estimate*/
 int GaudiTrkUtils::createPrefit(const std::vector<const edm4hep::TrackerHit*>& hit_list, edm4hep::TrackState& pre_fit,
                                 float bfield_z) {
   if (hit_list.empty())
@@ -147,13 +147,19 @@ int GaudiTrkUtils::createPrefit(const std::vector<const edm4hep::TrackerHit*>& h
   const edm4hep::Vector3d x2 = twoD_hits[twoD_hits.size() / 2]->getPosition();
   const edm4hep::Vector3d x3 = twoD_hits.back()->getPosition();
 
+  /* Building the helix:
+  Given 3 real-space points (real hits) and Bfield, HelixTrack utility class works out a unique circle passing through
+  the three point. Combining z-motion, the class can produce a helix as well  
+  */
   HelixTrack helixTrack(x1, x2, x3, bfield_z, HelixTrack::forwards);
 
+  // moveRefPoint(0.0, 0.0, 0.0) re-expresses the resulting helix parameters relative to the origin.
   helixTrack.moveRefPoint(0.0, 0.0, 0.0);
 
   const float referencePoint[3] = {float(helixTrack.getRefPointX()), float(helixTrack.getRefPointY()),
                                    float(helixTrack.getRefPointZ())};
 
+  /* pre_fit is the output */
   pre_fit.D0 = helixTrack.getD0();
   pre_fit.phi = helixTrack.getPhi0();
   pre_fit.omega = helixTrack.getOmega();
@@ -204,7 +210,7 @@ int GaudiTrkUtils::createFit(const std::vector<const edm4hep::TrackerHit*>& hit_
       // }
     } else { // normal non composite hit
 
-      if (marlinTrk.addHit(trkHit) == 0) {
+      if (marlinTrk.addHit(trkHit) == 0) { // checks if the hit (trkHit) got sucessfully (return code = 0) added to the kalman track
         isSuccessful = true;
         ndof_added += 2;
         m_thisAlg->debug() << "MarlinTrk::createFit ndof_added = " << ndof_added << endmsg;
@@ -216,7 +222,7 @@ int GaudiTrkUtils::createFit(const std::vector<const edm4hep::TrackerHit*>& hit_
     } else {
       m_thisAlg->debug() << "Hit " << it - hit_list.begin() << " Dropped " << endmsg;
     }
-  }
+  } // end of hit_list for loop
 
   if (ndof_added < MIN_NDF) {
     m_thisAlg->debug() << "MarlinTrk::createFit : Cannot fit less with less than " << MIN_NDF

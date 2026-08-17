@@ -54,9 +54,17 @@ double KDTrack::calculateChi2() {
     }
 
     // Get the residual between the track fit and the hit
+    /* residual y = yfit - ymeasured*/
     double residualY = (m_gradient * xMeasured + m_quadratic * xMeasured * xMeasured + m_intercept) - yMeasured;
 
     // Get the error on the hit position
+    /* term : local slope of the fitted track at the hit's x position. ie. derivative of the 
+    fitted function (y = a+ bx+ cx2) at the hit's x position. Since chi2 is computed only along 
+    the y direction, the error on the hit's x position is projected onto the y direction using 
+    "term" before it is combined with the error on hit's y position (dv). if you purturb x by 
+    delx, the corresponding change in y is dely = term * delx. So the total error on y 
+    is dv2 + (term*dx)^2. 
+    */
     double term = m_gradient + 2 * m_quadratic * xMeasured;
     double dy2 = (dv * dv) + (term * term * dx * dx);
 
@@ -249,12 +257,20 @@ void KDTrack::linearRegression(bool highPTfit) {
   // those close to the y-axis should be rotated.
 
   // Quick fix: sort hits from outside in
+  /* m_cluster : list of all the hits in the candidate track under investigation */
   std::sort(m_clusters.begin(), m_clusters.end(),
             [](const SKDCluster& a, const SKDCluster& b) { return a->getR() > b->getR(); });
 
   // If track has not yet been fitted
+
   if (m_gradient == 0.) {
-    // Check for hit within 90 degrees of +/- y-axis
+    // Check for the first hit within 90 degrees of +/- y-axis
+    /* if the hit is along y axis (closer to y axis than x), the slope is infinite. 
+    So if the first hit is closer to y, rotate the cordinate system by 90 degrees to 
+    avoid that singularity. Now the hit which was previously closer to y is closer to x 
+    and the fit will be done in rotated cordinate system
+    
+    */
     double theta = m_clusters[0]->getTheta();
     if ((theta > M_PI / 4. && theta < 3. * M_PI / 4.) || (theta > 5. * M_PI / 4. && theta < 7. * M_PI / 4.))
       m_rotated = true;
@@ -271,7 +287,7 @@ void KDTrack::linearRegression(bool highPTfit) {
     double y = cluster->getV();
     double er2 = cluster->getErrorV() * cluster->getErrorV();
 
-    // If rotated then perform the rotation
+    // If m_rotated = true, perform the rotation. Rotation is done counter-closckwise
     if (m_rotated) {
       double newx = y;
       double newy = -1. * x;
@@ -282,6 +298,7 @@ void KDTrack::linearRegression(bool highPTfit) {
     }
 
     // Fill the matrices
+    /* we are looking at weighted least sum of squares*/
     const double inverseEr2 = 1. / er2;
     vecx[0] += y * inverseEr2;
     vecx[1] += x * y * inverseEr2;
@@ -301,6 +318,9 @@ void KDTrack::linearRegression(bool highPTfit) {
                 matx[1][0] * (matx[1][0] * matx[2][2] - matx[2][1] * matx[2][0]) +
                 matx[2][0] * (matx[1][0] * matx[2][1] - matx[1][1] * matx[2][0]);
 
+  /* if highPTfit is true, tracks are staright lines which can be fitted with y = mx+c
+  quadratic terms vanish and determinant is calculated as 2x2 matrix
+  */              
   if (highPTfit)
     detx = matx[0][0] * matx[1][1] - matx[1][0] * matx[1][0];
   // Check for singularities.
@@ -318,10 +338,12 @@ void KDTrack::linearRegression(bool highPTfit) {
   adjx[2][2] = (matx[0][0] * matx[1][1] - matx[1][0] * matx[1][0]);
 
   // Get the track parameters
+  /* If matrix multiplication: V = P.M; P = M^-1 . V; M^-1 = Adj{M}/det|M|; Adj{M} = transpore of cofactor matrix */
   double intercept = (vecx[0] * adjx[0][0] + vecx[1] * adjx[1][0] + vecx[2] * adjx[2][0]) / detx;
   double gradient = (vecx[0] * adjx[1][0] + vecx[1] * adjx[1][1] + vecx[2] * adjx[2][1]) / detx;
   double quadratic = (vecx[0] * adjx[2][0] + vecx[1] * adjx[2][1] + vecx[2] * adjx[2][2]) / detx;
-
+  
+  /* straight line fit */
   if (highPTfit) {
     gradient = (vecx[1] * matx[0][0] - vecx[0] * matx[1][0]) / detx;
     intercept = (vecx[0] * matx[1][1] - vecx[1] * matx[1][0]) / detx;
@@ -334,12 +356,13 @@ void KDTrack::linearRegression(bool highPTfit) {
   m_quadratic = quadratic;
 
   // Set the corresponding errors
+  // paramater variences is given by the diagonal element of the covarient matrix, which is the adjoint of the matrix divided by its determinant
   m_interceptError = adjx[0][0] / detx; // to be multipled by sigma^2 in chi2 calculation
   m_gradientError = adjx[1][1] / detx;  // to be multipled by sigma^2 in chi2 calculation
 
   // Calculate the chi2
   m_chi2 = this->calculateChi2();
-  m_chi2ndof = m_chi2 / (m_clusters.size() - 3);
+  m_chi2ndof = m_chi2 / (m_clusters.size() - 3); //To-do  for highPtfit it should be -2; not implemented here
 }
 
 // Fit the track in sz (linear regression)
@@ -349,30 +372,41 @@ void KDTrack::linearRegressionConformal(bool) {
   std::array<std::array<double, 2>, 2> matx{};
 
   // Calculate a and b from the conformal fit
+  /* Here we are recovering the center of the circle (a,b) from the u-v fit.
+  The equation of a circle passing through the origin satisfies : 2au + 2bv = 1; v = -(a/b)u + 1/(2b); comparing to the fitted line v = mu + c, m = -a/b and
+  c = 1/2b, so a =-mb and b = 1/2c.
+  */
   double b = 1. / (2. * m_intercept);
   double a = -1. * b * m_gradient;
 
   // Get the errors on a and b
+  /* for a function y = f(x); sigma_y = |df/dx|* sigma_x 
+  if y = f(x1, x2), then sigma_y = |df/dx1|*sigma_x1 + |df/dx2|*sigma_x2 */
   double db = m_interceptError / (2. * m_intercept * m_intercept);
   double da2 = db * db * m_gradient * m_gradient + m_gradientError * m_gradientError * b * b;
 
   // Calculate the initial phi0 and its error, used for the calculation of s
+
+  /* x0 and yo are the cordinates of the first hit in the m_cluster vector; which sorted hits from inside to outside*/
   double x0 = m_clusters[0]->getX();
   double y0 = m_clusters[0]->getY();
   double errorx0 = m_clusters[0]->getErrorX();
   double errory0 = m_clusters[0]->getErrorY();
 
-  if (m_rotated) {
+  if (m_rotated) { // if rotated = true, the CS is rotaed by 90 deg counter clockwise, so x,y (errx, erry) are swapped and y is negated.
     x0 = m_clusters[0]->getY();
     y0 = -1. * m_clusters[0]->getX();
     errorx0 = m_clusters[0]->getErrorY();
     errory0 = m_clusters[0]->getErrorX();
   }
+  /* phi is the angular position of the hit seen from the center of the circle (a,b) and not the origin in real x,y space
+  atan2 is qunadrant-safe tangent inverse function*/
   double phi0 = atan2(y0 - b, x0 - a) + M_PI;
   // convert to 2pi radian range
   //  if(phi0 < 0.) phi0=(2.*M_PI-fabs(phi0));
   double prevPhi = phi0;
 
+  /* real-space (x,y) distance from the first hit (x0,y0) to the center of the circle  */
   double radC = sqrt((y0 - b) * (y0 - b) + (x0 - a) * (x0 - a));
 
   const double cPhi0 = cos(phi0);
@@ -389,6 +423,7 @@ void KDTrack::linearRegressionConformal(bool) {
   //   streamlog_out(DEBUG5) << "- phi0 is " << phi0 << std::endl;
   // }
   std::vector<double> sValues, sError2Values;
+  /* the loop starts from 1 coz we already processed the first hit above - which would be our reference point for the calculation of s*/
   for (size_t hit = 1; hit < m_clusters.size(); hit++) {
     // Get the global point details
     double xi = m_clusters[hit]->getX();
@@ -407,11 +442,21 @@ void KDTrack::linearRegressionConformal(bool) {
     double phi = atan2(yi - b, xi - a) + M_PI;
     // if (debug)
     //   streamlog_out(DEBUG5) << "- raw phi is " << phi << std::endl;
-
+    
+    /* arctan2 + pi always returns an angle [0,2pi]. This could be a problem coz a real track can sweep past 360 deg. eg: 355->358->361->4deg if 
+    you don't do the below correction. But arctan2 can only report 4deg not 364 deg. So a smoothly, continously increasing physical angle gets 
+    reported as a sudden cliff. Jumping from 358 deg to 4 deg even tho no physical jumping has happened.   
+     */
     if (fabs(phi - prevPhi) > M_PI) {
+      /* suppose prevPhi = 358 deg and phi is 4 deg. fabs(phi - prevPhi) = 354 deg > 180 - way too big a jump to be real since consecutive hits are
+      close together physically. This is a signal that a wraparound happened and is not a genuine sudden direction change.  */
       if (prevPhi > phi)
+      /*358 > 4 -> the raw hit phi value dropped, so the track must have crossed upwards through 360/0 deg seam. Adding full 360 deg -> phi = 364 deg.
+      now comparing phi witrh prevPhi : 364 -358 = 6 deg jump - physically sensible.
+      */
         phi += (2. * M_PI);
       else
+      //if prevphi = 2 deg and phi = 356 deg; phi -> 356 - 360 = -4 deg.
         phi -= (2. * M_PI);
     }
     prevPhi = phi;
@@ -419,7 +464,7 @@ void KDTrack::linearRegressionConformal(bool) {
     // if (debug)
     //   streamlog_out(DEBUG5) << "- modified phi is " << phi << std::endl;
 
-    double deltaPhi = phi - phi0;
+    double deltaPhi = phi - phi0; // change in phi needed to compute arc length s
 
     // double s        = ((xi - x0) * cPhi0 + (yi - y0) * sPhi0) / (sinc(deltaPhi));
     double s = radC * deltaPhi;
@@ -462,7 +507,11 @@ void KDTrack::linearRegressionConformal(bool) {
                      (dsdx0 * dsdx0 * errorx0 * errorx0) + (dsdy0 * dsdy0 * errory0 * errory0) +
                      (dsdPhi0 * dsdPhi0 * errorPhi0Squared) + (dsdDeltaPhi * dsdDeltaPhi * errorDeltaPhiSquared);
 
-    // Now set the values for the fit
+    // Now set the values for the fit; S vs Z fit
+    /*sValues/sError2Values are being saved into vectors here specifically so the second pass 
+    (further down) can reuse them without recomputing the whole arc-length/error-propagation chain again. 
+    er2, on this first pass, is just a simple sum: the propagated s-error plus the hit's raw z-error squared
+    — an approximate, not-yet-properly-scaled combination*/
     double y = s;
     sValues.push_back(s);
     sError2Values.push_back(errorS2);
@@ -474,21 +523,23 @@ void KDTrack::linearRegressionConformal(bool) {
     const double inverseEr2 = 1. / er2;
 
     // Fill the matrices
+    /* here y = s and x = z*/
     vecx[0] += y * inverseEr2;
     vecx[1] += x * y * inverseEr2;
     matx[0][0] += inverseEr2;
     matx[1][0] += x * inverseEr2;
     matx[1][1] += x * x * inverseEr2;
-  }
+  } // end of hit loop
 
   // Invert the matrices
+  /* calculate the determinant of the 2x2 system*/
   double detx = matx[0][0] * matx[1][1] - matx[1][0] * matx[1][0];
 
   // Check for singularities.
   if (detx == 0.)
     return;
 
-  // Get the track parameters
+  // Get the track parameters; a first-pass estimate of the S-Z slope and intercept 
   double slope = (vecx[1] * matx[0][0] - vecx[0] * matx[1][0]) / detx;
   double intercept = (vecx[0] * matx[1][1] - vecx[1] * matx[1][0]) / detx;
 
@@ -503,16 +554,27 @@ void KDTrack::linearRegressionConformal(bool) {
   for (size_t hit = 1; hit < m_clusters.size(); hit++) {
     double y = sValues[hit - 1];
     double x = m_clusters[hit]->getZ();
+    // sError2Values[hit -1] holds the arc length error value that was computed for m_clusters [hit]; that is why you see the index differences 
+    /* We require knowing slope first — which is exactly why it couldn't be done correctly on the 
+    first pass, and why a second pass exists at all. It's a one-step self-consistent refinement: 
+    get a rough slope, use it to properly weight the errors, then refit for a statistically better slope.*/
     double er2 = (sError2Values[hit - 1] + slope * slope * m_clusters[hit]->getErrorZ() * m_clusters[hit]->getErrorZ());
     const double inverseEr2 = 1. / er2;
 
     // Fill the matrices
+    /* the idea behind filling tehse vectors and matrices with the values indicated below: we are fitting a straight line: s = intercept + slope.z
+    to the hits (in the code s = y and z = x). The wighted least-squares principle says to chose intercept (a) and slope (c) to minimise the weighted sum of residuals.
+    χ² = Σ_i  w_i · (y_i − a − b·x_i)² ; where w_i = inverseEr2 = 1/er2 is the weight for hit i , idea being trust precise points more. To minimise
+    chi 2; we set ∂χ²/∂a = 0 and ∂χ²/∂b = 0 and then write it as a matrix equation:
+    [ Σw    Σwx  ] [a]   [ Σwy  ]
+    [ Σwx   Σwx² ] [b] = [ Σwxy ]
+    */
     vecx[0] += y * inverseEr2;
     vecx[1] += x * y * inverseEr2;
     matx[0][0] += inverseEr2;
     matx[1][0] += x * inverseEr2;
     matx[1][1] += x * x * inverseEr2;
-  }
+  } // end of re-fitting using better estimates
 
   // Now get the new fit parameters
 
@@ -523,7 +585,7 @@ void KDTrack::linearRegressionConformal(bool) {
   if (detx == 0.)
     return;
 
-  // Get the track parameters
+  // Get the track parameters - re-fitted values
   slope = (vecx[1] * matx[0][0] - vecx[0] * matx[1][0]) / detx;
   intercept = (vecx[0] * matx[1][1] - vecx[1] * matx[1][0]) / detx;
 

@@ -75,6 +75,14 @@ public:
   void nearestNeighbours(
       SKDCluster const& pt, int N, SharedKDClusters& result,
       std::function<bool(SKDCluster const&)> const& filter = [](SKDCluster const&) { return false; });
+  /* Given a hit pt, find every other hit within the radius, but let teh caller supply optional ex†ra rules for excluding 
+  some of those hits, and put whatever survives into result vector. 4th parameter passed is a filer function. This parameter 
+  allows the caller to define a custom logic for excluding a hit candidate. The KDTree code will run teh logic internally once for every nearby hit. 
+  std::function<bool(SKDCluster const&)> : takes in a hit (SKDCluster) and returns a bool. std:: function: general purpose wrapper for any 
+  callable matching ths signature (<bool(SKDCluster const&))>, filter: parameter name. If the caller does not supply a filter, 
+  the default lambda ([](SKDCluster const&) { return false; }) gets excected. Breaking down the lambda: []:captures nothing from outside,
+  (SKDCluster const&) — takes one hit, { return false; } — always says "don't exclude this one," no matter what hit is passed in. 
+  */
   void allNeighboursInRadius(
       SKDCluster const& pt, const double radius, SharedKDClusters& result,
       std::function<bool(SKDCluster const&)> const& filter = [](SKDCluster const&) { return false; });
