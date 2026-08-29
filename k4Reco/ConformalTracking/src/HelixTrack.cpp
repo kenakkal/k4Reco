@@ -37,10 +37,10 @@ HelixTrack::HelixTrack(const edm4hep::Vector3d& x1, const edm4hep::Vector3d& x2,
   TVector3 p2(x2[0], x2[1], x2[2]);
   TVector3 p3(x3[0], x3[1], x3[2]);
 
-  THelicalTrack helicalTrack(p1, p2, p3, Bz, direction);
-
+  /* this is the call into some ext KalTest lib which we dont have source for, which i think produces the helix using the 5 inputs */
+  THelicalTrack helicalTrack(p1, p2, p3, Bz, direction); 
+  
   // Set the track parameters and convert from the KalTest system to the lcio system
-
   m_phi0 = toBaseRange(helicalTrack.GetPhi0() + M_PI / 2.);
   m_omega = 1. / helicalTrack.GetRho();
   m_z0 = helicalTrack.GetDz();

@@ -73,10 +73,13 @@ protected:
 };
 
 // //---------------------------------------------------------------------------------------------------------------
+/* the third argument of the constructor is a default arg = nullptr */
 GaudiDDKalTestTrack::GaudiDDKalTestTrack(
     const Gaudi::Algorithm* algorithm, GaudiDDKalTest* ktest,
     std::shared_ptr<std::map<const edm4hep::TrackerHit*, DDVTrackHit*>> edm4hep_hits_to_kaltest_hits)
     : m_ktest(ktest), m_edm4hep_hits_to_kaltest_hits(edm4hep_hits_to_kaltest_hits), m_thisAlg(algorithm) {
+  
+  /* constructing the real Kalman-track object */
   m_kaltrack.reset(new TKalTrack());
   m_kaltrack->SetOwner();
 
@@ -111,6 +114,8 @@ int GaudiDDKalTestTrack::addHit(const edm4hep::TrackerHit* trkhit, const DDVMeas
       throw std::runtime_error(
           "GaudiDDKalTestTrack::addHit - trkhit is not a TrackerHitPlane, this is not implemented yet");
     }
+    /* The KalTest-family lib still speaks old LCIO data model, not edm4hep directly. So every hit has to 
+    be repcakaged into an LCIO style hit object (copying position, cellID, du, dv errors) before it goes near Kalman machinery*/
     auto hit = IMPL::TrackerHitPlaneImpl();
     double pos[3] = {trkhit->getPosition()[0], trkhit->getPosition()[1], trkhit->getPosition()[2]};
     hit.setPosition(pos);
@@ -131,7 +136,9 @@ int GaudiDDKalTestTrack::addHit(const edm4hep::TrackerHit* trkhit, const DDVMeas
     // hit.setV(v);
     // hit.setTime(trkhit->getTime());
 
-    auto* kalhit = ml->ConvertLCIOTrkHit(&hit);
+    /* ml->ConvertLCIOTrkHit(&hit): another external call to DDVMeasLayer ( no source code available) that turns the freshly
+    bulit LCIO hit into KalTest lib's DDVTrackHit. This is kalhit  */
+    auto* kalhit = ml->ConvertLCIOTrkHit(&hit); // kalhit is type DDVTrackHit 
     return this->addHit(trkhit, kalhit, ml);
   } else {
     m_thisAlg->warning() << " GaudiDDKalTestTrack::addHit - bad inputs " << trkhit << " ml : " << ml << endmsg;
@@ -182,16 +189,29 @@ int GaudiDDKalTestTrack::initialise(const edm4hep::TrackState& ts, bool fitDirec
 
   // get Bz from first hit
   TVTrackHit& h1 = *dynamic_cast<TVTrackHit*>(m_kalhits->At(0));
-  double Bz = h1.GetBfield();
+  double Bz = h1.GetBfield(); // mag field associated with h1 measurement layer 
 
   // for GeV, Tesla, R in mm
-  double alpha = Bz * 2.99792458E-4;
+  /* A charge particle in a mag field, moves in a helix and teh formaula relating 
+  pt, B and R is : pT [GeV] = 0.2998 x B [T] x R [m]. alpha is teh conv factor which 
+  lets you go from radius in mm to moemntum in GeV 
+  */
+  double alpha = Bz * 2.99792458E-4; // field-curvature conversion constant 
 
+  /* if bz = 0; kappa = DBL_MAX(eqavalent to infinity)
+  kappa is omega/alpha; omega =  1/R ; alpha = pT/R -> kappa = 1/pT  */
   double kappa = (Bz == 0.0 ? DBL_MAX : ts.omega / alpha);
 
+  m_thisAlg->debug() << "GaudiDDKalTestTrack::initialise DIAGNOSTIC: Bz (from hit's measurement layer) = " << Bz
+                     << " Tesla, alpha = " << alpha << ", kappa = " << kappa << endmsg;
+
+  /* Converting the edm4hep's track fitting parameters into KalTest's parameter convention. here we are building 
+  KalTest's own internal representation of "the same physical helix," just re-expressed in its own parameter convention */
   THelicalTrack helix(-ts.D0, toBaseRange(ts.phi - M_PI / 2.), kappa, ts.Z0, ts.tanLambda, ts.referencePoint[0],
                       ts.referencePoint[1], ts.referencePoint[2], Bz);
 
+  
+  /*converting the ed4hep's covariance matrix into KalTest's covarience matrix representation */
   TMatrixD cov(kSdim, kSdim);
 
   cov(0, 0) = ts.covMatrix[0];          //   d0, d0
@@ -229,6 +249,10 @@ int GaudiDDKalTestTrack::initialise(const edm4hep::TrackState& ts, bool fitDirec
   // move the helix to either the position of the last hit or the first depending on initalise_at_end
 
   // default case initalise_at_end
+  /* Choose which hit to initialise from. Default is the last hit. If fitDirection = true, first hit is used.
+  This is exactly forward/backward fit direction choice - determining which end of the track the Kalman filter starts 
+  propogating from. 
+  */
   int index = m_kalhits->GetEntries() - 1;
   // or initialise at start
   if (m_fitDirection == true) {
@@ -243,6 +267,8 @@ int GaudiDDKalTestTrack::initialise(const edm4hep::TrackState& ts, bool fitDirec
 
   // Leave the pivot at the origin for a 1-dim hit
   if (kalhit->GetDimension() > 1) {
+    /*HitToXv : (external KalTest lib function , hit to X-vector) - converts hit's local measurement 
+    cordinates to actual 3D position - a real point in space */
     initial_pivot = kalhit->GetMeasLayer().HitToXv(*kalhit);
   } else {
     initial_pivot = TVector3(0.0, 0.0, 0.0);
@@ -255,6 +281,8 @@ int GaudiDDKalTestTrack::initialise(const edm4hep::TrackState& ts, bool fitDirec
 
   TVTrackHit* pDummyHit = nullptr;
 
+  /* dynamic_cast on a ptr returns nullptr if the cast fails; the branch runs iff kalhit is of type DDCylinderHit
+  if it matches, a fresh copy of that specific hit is created  */
   if ((pDummyHit = dynamic_cast<DDCylinderHit*>(kalhit))) {
     pDummyHit = (new DDCylinderHit(*static_cast<DDCylinderHit*>(kalhit)));
 
@@ -264,14 +292,14 @@ int GaudiDDKalTestTrack::initialise(const edm4hep::TrackState& ts, bool fitDirec
     // else if ( (pDummyHit = dynamic_cast<DDPlanarStripHit *>( kalhit )) ) {
     // pDummyHit = (new DDPlanarStripHit(*static_cast<DDPlanarStripHit*>( kalhit )));
     if (pDummyHit->GetDimension() == 1) {
-      const TVMeasLayer* ml = &pDummyHit->GetMeasLayer();
+      const TVMeasLayer* ml = &pDummyHit->GetMeasLayer(); // dummy hit's measured layer
 
-      const TVSurface* surf = dynamic_cast<const TVSurface*>(ml);
+      const TVSurface* surf = dynamic_cast<const TVSurface*>(ml); // dummy hit surfuce 
 
       if (surf) {
         double phi;
 
-        surf->CalcXingPointWith(helix, initial_pivot, phi);
+        surf->CalcXingPointWith(helix, initial_pivot, phi); // where does the helix we built before crosses this specific dummy hit's surfuce 
         m_thisAlg->debug() << "  GaudiDDKalTestTrack::initialise - CalcXingPointWith called for 1d hit ... " << endmsg;
 
       } else {
@@ -290,6 +318,12 @@ int GaudiDDKalTestTrack::initialise(const edm4hep::TrackState& ts, bool fitDirec
 
   // SJA:FIXME: this constants should go in a header file
   //  give the dummy hit huge errors so that it does not contribute to the fit
+  /* you don't want the dummy hit to contribute towards any real measurements. Hence you set thier error very high and
+  based on the Weighted LSM principle, the weight contribution of this hit would be utterly negligible. This is quite 
+  deliberate. The dummy hits exists for the Kalman filter to find a valid starting site to build it's chains from. 
+  It is structurally needed by the algo but you dont want it to bias the fit. hence large error  
+  
+  */
   dummyHit(0, 1) = 1.e16; // give a huge error to d
 
   if (dummyHit.GetDimension() > 1)
@@ -305,7 +339,8 @@ int GaudiDDKalTestTrack::initialise(const edm4hep::TrackState& ts, bool fitDirec
   //  Set up initial track state
   // ---------------------------
 
-  helix.MoveTo(initial_pivot, dphi, nullptr, &cov);
+  /* recomputes the helix's parameters relative to the new ref point: initial_pivot - position derived from the chosen hit */
+  helix.MoveTo(initial_pivot, dphi, nullptr, &cov); 
 
   static TKalMatrix initialState(kSdim, 1);
   initialState(0, 0) = helix.GetDrho();      // d0
@@ -335,12 +370,15 @@ int GaudiDDKalTestTrack::initialise(const edm4hep::TrackState& ts, bool fitDirec
   //    covK.Print();
 
   // Add initial states to the site
+  /* Standard Kalman-filter terminology: every site needs both a predicted state 
+  (before incorporating a measurement) and a filtered state (after) */
+
   initialSite.Add(new TKalTrackState(initialState, covK, initialSite, TVKalSite::kPredicted));
   initialSite.Add(new TKalTrackState(initialState, covK, initialSite, TVKalSite::kFiltered));
 
   // add the initial site to the track: that is, give the track initial parameters and covariance
   // matrix at the starting measurement layer
-  m_kaltrack->Add(&initialSite);
+  m_kaltrack->Add(&initialSite); // This is the placeholder site built from the dummy hit with huge error gets added to teh real TKalTrack object giving teh filter chain its starting point
 
   m_initialised = true;
 
@@ -356,7 +394,7 @@ int GaudiDDKalTestTrack::addAndFit(DDVTrackHit* kalhit, double& chi2increment, T
     throw std::runtime_error("Track fit not initialised");
   }
 
-  const auto* ml = dynamic_cast<const DDVMeasLayer*>(&(kalhit->GetMeasLayer()));
+  const auto* ml = dynamic_cast<const DDVMeasLayer*>(&(kalhit->GetMeasLayer())); // get the measurement layer hit belongs to
 
   if (m_thisAlg->msgLevel(MSG::DEBUG)) {
     m_thisAlg->debug() << "Kaltrack::addAndFit :  add site to track at index : " << ml->GetIndex() << " for type "
@@ -490,7 +528,8 @@ int GaudiDDKalTestTrack::fit(double maxChi2Increment) {
   //  Prepare hit iterrator for adding hits to kaltrack
   // ---------------------------
 
-  TIter next(m_kalhits, m_fitDirection);
+  /* TIter creates an iterator over m_kalhits, with m_fitDirection controlling which direction to walk the array  */
+  TIter next(m_kalhits, m_fitDirection); 
 
   // ---------------------------
   //  Start Kalman Filter
@@ -498,6 +537,7 @@ int GaudiDDKalTestTrack::fit(double maxChi2Increment) {
 
   DDVTrackHit* kalhit = nullptr;
 
+  /* next() returns the next element in the array */
   while ((kalhit = dynamic_cast<DDVTrackHit*>(next()))) {
     double chi2increment;
     TKalTrackSite* site = nullptr;

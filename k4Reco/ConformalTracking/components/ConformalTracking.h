@@ -117,7 +117,7 @@ private:
   Gaudi::Property<bool> m_enableTCVC{this, "EnableTightCutsVertexCombined", true,
                                      "Enabled tight cuts as first step of reconstruction in vertex b+e [TMP!!]"};
 
-  Gaudi::Property<bool> m_debugPlots{this, "DebugPlots", false, "Plots for debugging the tracking"};
+  Gaudi::Property<bool> m_debugPlots{this, "DebugPlots", true, "Plots for debugging the tracking"};
   Gaudi::Property<bool> m_debugTime{this, "DebugTiming", false, "Print out time profile"};
 
   Gaudi::Property<bool> m_retryTooManyTracks{this, "RetryTooManyTracks", true,
@@ -187,6 +187,7 @@ private:
   TH2F* m_slopeZ_vs_pt_true = nullptr;
 
   TH1F* m_cellAngle = nullptr;
+  TH1F* m_cellAngleRZ = nullptr; 
   TH1F* m_cellDOCA = nullptr;
   TH2F* m_cellAngleRadius = nullptr;
   TH2F* m_cellLengthRadius = nullptr;
@@ -230,7 +231,7 @@ private:
   TH3F* m_xyzDistribution = nullptr;
 
   // Other constants
-  SKDCluster debugSeed = nullptr;
+  mutable SKDCluster debugSeed = nullptr; // mutable added to run for the trace studies
   double m_slopeZRange = 1000.0;
   // ConformalDebugger                    m_debugger{};
   std::map<SKDCluster, edm4hep::MCParticle*> kdParticles{};  // Link from conformal hit to MC particle

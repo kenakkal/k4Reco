@@ -128,7 +128,7 @@ int GaudiTrkUtils::createPrefit(const std::vector<const edm4hep::TrackerHit*>& h
   ///////////////////////////////////////////////////////
   // check that there are enough 2-D hits to create a helix
   ///////////////////////////////////////////////////////
-
+  /* we need at least 3 points to determine a circle geometrically */
   if (twoD_hits.size() < 3) { // no chance to initialise print warning and return
     m_thisAlg->warning() << "MarlinTrk::createFinalisedLCIOTrack Cannot create helix from less than 3 2-D hits"
                          << endmsg;
@@ -143,9 +143,9 @@ int GaudiTrkUtils::createPrefit(const std::vector<const edm4hep::TrackerHit*>& h
 
   // SJA:FIXME: this may not be the optimal 3 hits to take in certain cases where the 3 hits are not well spread over
   // the track length
-  const edm4hep::Vector3d x1 = twoD_hits[0]->getPosition();
-  const edm4hep::Vector3d x2 = twoD_hits[twoD_hits.size() / 2]->getPosition();
-  const edm4hep::Vector3d x3 = twoD_hits.back()->getPosition();
+  const edm4hep::Vector3d x1 = twoD_hits[0]->getPosition(); // first hit 
+  const edm4hep::Vector3d x2 = twoD_hits[twoD_hits.size() / 2]->getPosition(); // mid hit 
+  const edm4hep::Vector3d x3 = twoD_hits.back()->getPosition(); // last hit 
 
   /* Building the helix:
   Given 3 real-space points (real hits) and Bfield, HelixTrack utility class works out a unique circle passing through
@@ -160,11 +160,11 @@ int GaudiTrkUtils::createPrefit(const std::vector<const edm4hep::TrackerHit*>& h
                                    float(helixTrack.getRefPointZ())};
 
   /* pre_fit is the output */
-  pre_fit.D0 = helixTrack.getD0();
-  pre_fit.phi = helixTrack.getPhi0();
-  pre_fit.omega = helixTrack.getOmega();
-  pre_fit.Z0 = helixTrack.getZ0();
-  pre_fit.tanLambda = helixTrack.getTanLambda();
+  pre_fit.D0 = helixTrack.getD0(); // transverse imapct parameter 
+  pre_fit.phi = helixTrack.getPhi0(); // azimuth direction at the closest approach
+  pre_fit.omega = helixTrack.getOmega(); // curvature of teh helix 
+  pre_fit.Z0 = helixTrack.getZ0(); // longitudnbal counterpart of D0
+  pre_fit.tanLambda = helixTrack.getTanLambda(); // dip anmgle; slipe of Z vs S 
 
   pre_fit.referencePoint = referencePoint;
 
@@ -332,9 +332,19 @@ int GaudiTrkUtils::finaliseLCIOTrack(GaudiDDKalTestTrack& marlintrk, edm4hep::Mu
   // and therefore be able to provide well formed (pos. def.) cov. matrices
   ///////////////////////////////////////////////////////////////////////////
 
-  edm4hep::TrackState trkStateAtFirstHit;
+  /* fior covariance matrix to be mathematically valid, it has to be postive and definite - meaning every possibvle direction through parameter 
+  space has postive variance. Never 0 or -ve. Early in a fit — before enough real hits have been incorporated — the covariance can still be dominated 
+  by the deliberately huge initial seed values we studied (1e6, 1e2, etc.), and isn't yet well-behaved. This section exists to find the specific point 
+  along the track where the fit first becomes properly constrained, so later code can safely report covariance matrices only from that point onward.
+ */
+  edm4hep::TrackState trkStateAtFirstHit; // empty-to be filled soon 
+  /* hits_in_fit : std::vec<std::pair<ed4hep::trackerHits*, double>>& - vector of pairs, each holding the hit poinetr and its chi2 contribution*/
   const edm4hep::TrackerHit* firstHit = fit_direction == false ? hits_in_fit.back().first : hits_in_fit.front().first;
   const edm4hep::TrackerHit* lastHit = fit_direction == false ? hits_in_fit.front().first : hits_in_fit.back().first;
+  /* the name here : last_constrained_hit can be a bit confusing coz getTrackerHitAtPositiveNDF() returns m_trackHitAtPositiveNDF
+  captures the earliest point in the fitting process where things first became well-constrained. This variable is passed onto 
+  smooth() which works backwards and has to smoothen until thhe very first point where teh fit becomes meaningful. 
+  In this way, the word "LAST" makes sense. */
   const edm4hep::TrackerHit* last_constrained_hit = marlintrk.getTrackerHitAtPositiveNDF();
 
   // m_thisAlg->debug() << "MarlinTrk::finaliseLCIOTrack: firstHit : " << toString( firstHit )
@@ -491,11 +501,12 @@ int GaudiTrkUtils::finaliseLCIOTrack(GaudiDDKalTestTrack& marlintrk, edm4hep::Mu
   }
 
   // set the track state at Calo Face
-  edm4hep::TrackState trkStateCalo;
+  /*edm4hep::TrackState trkStateCalo;
   // TODO
   bool tanL_is_positive = trkStateIP.tanLambda > 0;
 
   // TODO
+  
   return_error = createTrackStateAtCaloFace(marlintrk, trkStateCalo, last_constrained_hit, tanL_is_positive);
 
   if (return_error == 0) {
@@ -506,7 +517,7 @@ int GaudiTrkUtils::finaliseLCIOTrack(GaudiDDKalTestTrack& marlintrk, edm4hep::Mu
                        << endmsg;
     // FIXME: ignore track state at Calo face for debugging new tracking ...
     //  THIS IS ALSO PART OF THE PREVIOUS TODO
-  }
+  }*/
 
   // This branch is never taken in the original MarlinTrkUtils code
   // as this function is always called without the last two arguments

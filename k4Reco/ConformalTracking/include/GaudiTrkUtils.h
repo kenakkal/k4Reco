@@ -47,7 +47,7 @@ void setStreamlogOutputLevel(const Gaudi::Algorithm* thisAlg, streamlog::logscop
 // and hold a few objects that are needed for the functions
 class GaudiTrkUtils {
 public:
-  GaudiTrkUtils() = delete;
+  GaudiTrkUtils() = delete; // def no arguments constructoir is forbidden
   GaudiTrkUtils(const Gaudi::Algorithm* thisAlg, const GaudiDDKalTest& ddKalTest, SmartIF<IGeoSvc> geoSvc,
                 const std::string encodingStringVariable)
       : m_thisAlg(thisAlg), m_ddkaltest(ddKalTest), m_geoSvc(geoSvc), m_encodingStringVariable(encodingStringVariable) {

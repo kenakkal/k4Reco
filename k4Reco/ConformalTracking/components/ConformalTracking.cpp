@@ -371,6 +371,7 @@ StatusCode ConformalTracking::initialize() {
 
     // Histograms for tuning parameters (cell angle cut, cell length cut)
     m_cellAngle = new TH1F("cellAngle", "cellAngle", 1250, 0, 0.05);
+    m_cellAngleRZ = new TH1F("cellAngleRZ", "cellAngleRZ", 1250, 0, 0.05); 
     m_cellDOCA = new TH1F("cellDOCA", "cellDOCA", 100., 0, 0.1);
     m_cellAngleRadius = new TH2F("cellAngleRadius", "cellAngleRadius", 400, 0, 0.04, 1000, 0, 0.04);
     m_cellLengthRadius = new TH2F("cellLengthRadius", "cellLengthRadius", 300, 0, 0.03, 1000, 0, 0.04);
@@ -480,11 +481,11 @@ edm4hep::TrackCollection ConformalTracking::operator()(
       // int  module   = m_encoder[lcio::LCTrackerCellID::module()];
       // int  sensor   = m_encoder[lcio::LCTrackerCellID::sensor()];
       const auto celId = hit.getCellID();
-      const auto subdet = m_encoder.get(celId, 0);
-      const auto side = m_encoder.get(celId, 1);
-      const auto layer = m_encoder.get(celId, 2);
-      const auto module = m_encoder.get(celId, 3);
-      const auto sensor = m_encoder.get(celId, 4);
+      const auto subdet = m_encoder.get(celId,"system");
+      const auto side = m_encoder.get(celId,"side");
+      const auto layer = m_encoder.get(celId,"layer");
+      const auto module = m_encoder.get(celId,"module");
+      const auto sensor = m_encoder.get(celId,"sensor");
       bool isEndcap = false;
       bool forward = false;
 
@@ -502,6 +503,18 @@ edm4hep::TrackCollection ConformalTracking::operator()(
 
       // Set the subdetector information
       kdhit->setDetectorInfo(subdet, side, layer, module, sensor);
+
+      // TEMPORARY: trace the specific hit found by FindUnusedButExits.py
+      constexpr int TARGET_EVENT = 0;
+      constexpr double TARGET_X = 3.821;
+      constexpr double TARGET_Y = 1728.023;
+      constexpr double TARGET_Z = -3.012;
+      if (m_eventNumber == TARGET_EVENT && std::abs(kdhit->getX() - TARGET_X) < 0.5 &&
+          std::abs(kdhit->getY() - TARGET_Y) < 0.5 && std::abs(kdhit->getZ() - TARGET_Z) < 0.5) {
+        debugSeed = kdhit;
+        info() << "debugSeed SET: matched target hit at x=" << kdhit->getX() << " y=" << kdhit->getY()
+               << " z=" << kdhit->getZ() << endmsg;
+      }
 
       // Store the link between the two
       kdClusterMap.emplace(kdhit, hit);
@@ -714,18 +727,23 @@ edm4hep::TrackCollection ConformalTracking::operator()(
   info() << "*** CA has made " << conformalTracks.size() << (conformalTracks.size() == 1 ? " track ***" : " tracks ***")
          << endmsg;
 
-  // Loop over all track candidates
+  /* Loop over all track candidates. This is the final list of tracks that threaded through every step of runStep(),
+  holding every track that survived the entire pattern recogonition algo.
+  
+  */
   for (const auto& conformalTrack : conformalTracks) {
     info() << "- Fitting track " << &conformalTrack << endmsg;
 
-    // Make the LCIO track hit vector
-    std::vector<const edm4hep::TrackerHit*> trackHits;
+    // Make the LCIO track hit vector. Building the real hit list
+    std::vector<const edm4hep::TrackerHit*> trackHits; // empty now
     trackHits.reserve(conformalTrack->m_clusters.size());
     for (const auto& cluster : conformalTrack->m_clusters) {
       /* for each kdCluster in the accepted track, the code line below looks up at the OG raw hit 
       it came from*/
       trackHits.push_back(&kdClusterMap.at(cluster));
-    }
+    } /* by the end of this loop, trackHits will conatin pointers to every real hits belonging to this track.
+    This is the actrual data the Kalman fit would eventually use.
+    */
 
     // Sort the hits from smaller to larger radius
     /* sort_by_radius  operates on real hits (const edm4hep::TrackerHit*) unlike sort_by_radiusKD which 
@@ -733,9 +751,11 @@ edm4hep::TrackCollection ConformalTracking::operator()(
     std::ranges::sort(trackHits, (bool (*)(const edm4hep::TrackerHit*, const edm4hep::TrackerHit*))sort_by_radius);
 
     // Now we can make the track object and relations object, and fit the track
+    /* the variable track is of the type MutableTrack which means it can me modified. it is not read.-only. 
+    It has setters to build and fill in. This is the actual output object that gets saved.*/
     edm4hep::MutableTrack track;
 
-    // First, for some reason there are 2 track objects, one which gets saved and one which is used for fitting. Don't
+    // First, for some reason there are 2 track objects, one which gets saved (edm4hep::MutableTrack track) and one which is used for fitting (marlinTrk). Don't
     // ask...
     // TODO: Remove const_cast
     /* this : current conformal tracking instance*/
@@ -744,15 +764,20 @@ edm4hep::TrackCollection ConformalTracking::operator()(
     // Make an initial covariance matrix with very broad default values
     // Track states in EDM4hep are stored in a 6x6 covariance matrix
     /* initial seed teh kalman filter starts from, before it has processed a single hit*/
-    edm4hep::CovMatrix6f covMatrix{};
+    edm4hep::CovMatrix6f covMatrix{}; // constructs a fresh 6x6 covariebnce matrix with each element initialised to 0 now
     covMatrix[0] = m_initialTrackError_d0;    // sigma_d0^2
     covMatrix[2] = m_initialTrackError_phi0;  // sigma_phi0^2
     covMatrix[5] = m_initialTrackError_omega; // sigma_omega^2
     covMatrix[9] = m_initialTrackError_z0;    // sigma_z0^2
     covMatrix[14] = m_initialTrackError_tanL; // sigma_tanl^2
 
+    /* number of hits which goes into the fit*/
     debug() << " Track hits before fit = " << trackHits.size() << endmsg;
 
+    /*Creates a new GaudiTrkUtils object (trkUtils) with 4 objects the track fitting code needs:
+    handle back to the parent algorithm - ConformalTrcaking.cpp for logging (static_cast<const Gaudi::Algorithm*>(this)),
+    reference to the shared Kalman-fit configuration (m_ddkaltest), handle to geo service, a copy of the cellID-decoding scheme
+    */
     GaudiTrkUtils trkUtils(static_cast<const Gaudi::Algorithm*>(this), m_ddkaltest, m_geoSvc,
                            m_encodingStringVariable.value());
 
@@ -941,6 +966,8 @@ StatusCode ConformalTracking::finalize() {
 
     m_cellAngle->Write();
     delete m_cellAngle;
+    m_cellAngleRZ->Write();     
+    delete m_cellAngleRZ;   
     m_cellDOCA->Write();
     delete m_cellDOCA;
     m_cellAngleRadius->Write();
@@ -1335,9 +1362,10 @@ void ConformalTracking::extendSeedCells(SharedCells& cells, UKDTree& nearestNeig
       // Get the end point of the cell (to search for neighbouring hits to form new cells connected to this one)
       SKDCluster const& hit = cells[itCell]->getEnd(); // grow the chain from the end of the cell. 
       double searchDistance = parameters.m_maxDistance; // hit->getR();
-      if (searchDistance > hit->getR())
-        searchDistance = 1.2 * hit->getR();
-
+      if (searchDistance > hit->getR()){
+        searchDistance = 1.2 * hit->getR(); // changed from 1.2 to 5.0 to 1.2
+        //info() << "SEARCH DISTANCE MULTIPLIER TEST BUILD" << endmsg;
+      }
       // Extrapolate along the cell and then make a 2D nearest neighbour search at this extrapolated point
       SKDCluster const& fakeHit =
           extrapolateCell(cells[itCell], searchDistance / 2.); // TODO: make this search a function of radius
@@ -1438,6 +1466,11 @@ void ConformalTracking::extendSeedCells(SharedCells& cells, UKDTree& nearestNeig
 
         // Check if the new cell is compatible with the previous cell (angle between the two is acceptable)
         //        if( cells[itCell]->getAngle(cell) > (parameters.m_maxCellAngle*exp(-0.001/nhit->getR())) ){
+        // Check if the new cell is compatible with the previous cell (angle between the two is acceptable)
+        if (m_debugPlots) {
+          m_cellAngle->Fill(cells[itCell]->getAngle(cell));
+          m_cellAngleRZ->Fill(cells[itCell]->getAngleRZ(cell)); 
+        }
         if (cells[itCell]->getAngle(cell) > parameters.m_maxCellAngle ||
             cells[itCell]->getAngleRZ(cell) > parameters.m_maxCellAngleRZ) {
           // Debug plotting
@@ -2117,7 +2150,7 @@ void ConformalTracking::buildNewTracks(UniqueKDTracks& conformalTracks, SharedKD
   std::ranges::sort(collection, vertexToTracker ? sort_by_radiusKD : sort_by_lower_radiusKD);
 
   // Loop over all hits, using each as a seed to produce a new track; outer seed loop 
-  for (unsigned int  = 0; nKDHit < collection.size(); nKDHit++) {
+  for (unsigned int nKDHit = 0; nKDHit < collection.size(); nKDHit++) {
     auto stopwatch_hit = TStopwatch();
     auto stopwatch_hit_total = TStopwatch();
 
@@ -2301,14 +2334,14 @@ void ConformalTracking::buildNewTracks(UniqueKDTracks& conformalTracks, SharedKD
                 << endmsg;
 
       // Debug plotting
-      // if (m_debugPlots) {
-      //   const auto& cell = cells.back();
-      //   m_cellDOCA->Fill(cell->doca());
+      if (m_debugPlots) {
+        const auto& cell = cells.back();
+        m_cellDOCA->Fill(cell->doca());
       //   if (m_eventNumber == 0) {
       //     m_canvConformalEventDisplayAllCells->cd();
       //     drawline(kdhit, nhit, 1);
       //   }
-      // }
+      }
     } // end of neighbour loop; moves to next neighnour in the results vector and if it survives the filtering, it will be used to make a new Cell and added to the cells vector
 
     if (m_debugTime)
