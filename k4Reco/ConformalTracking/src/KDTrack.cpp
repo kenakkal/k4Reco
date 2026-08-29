@@ -28,7 +28,7 @@ KDTrack::KDTrack(Parameters const& par)
     : m_gradient(0.), m_intercept(0.), m_rotated(false), fillFit(false), m_kalmanFitForward(par.m_kalmanFitForward) {}
 
 // Function to calculate the chi2
-double KDTrack::calculateChi2() {
+double KDTrack::calculateChi2(bool highPTfit) {
   // Value to return
   double chi2 = 0.;
 
@@ -74,8 +74,8 @@ double KDTrack::calculateChi2() {
   }
 
   // Set errors on the gradient and intercept
-  m_interceptError *= (residual2 / (m_clusters.size() - 3));
-  m_gradientError *= (residual2 / (m_clusters.size() - 3));
+  m_interceptError *= (residual2 / (m_clusters.size() - (highPTfit ? 2 : 3)));
+  m_gradientError *= (residual2 / (m_clusters.size() - (highPTfit ? 2 : 3)));
   m_interceptError = sqrt(m_interceptError);
   m_gradientError = sqrt(m_gradientError);
 
@@ -355,14 +355,19 @@ void KDTrack::linearRegression(bool highPTfit) {
   m_gradient = gradient;
   m_quadratic = quadratic;
 
+  if (highPTfit) {
+  adjx[0][0] = matx[1][1];
+  adjx[1][1] = matx[0][0];
+  } 
+
   // Set the corresponding errors
   // paramater variences is given by the diagonal element of the covarient matrix, which is the adjoint of the matrix divided by its determinant
   m_interceptError = adjx[0][0] / detx; // to be multipled by sigma^2 in chi2 calculation
   m_gradientError = adjx[1][1] / detx;  // to be multipled by sigma^2 in chi2 calculation
 
   // Calculate the chi2
-  m_chi2 = this->calculateChi2();
-  m_chi2ndof = m_chi2 / (m_clusters.size() - 3); //To-do  for highPtfit it should be -2; not implemented here
+  m_chi2 = this->calculateChi2(highPTfit);
+  m_chi2ndof = m_chi2 / (m_clusters.size() - (highPTfit ? 2:3)); // changed from 3 to 2.  for highPtfit it should be -2;
 }
 
 // Fit the track in sz (linear regression)

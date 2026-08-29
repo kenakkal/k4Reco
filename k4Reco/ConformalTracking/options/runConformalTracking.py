@@ -79,8 +79,8 @@ parameters = {
         "Barrel": {
             "collections": ["SiWrBHits"],
             "params": {
-                "MaxCellAngle": 0.05, #changed from 0.01 to 0.005 to 0.05
-                "MaxCellAngleRZ": 0.05,#changed from 0.01 to 0.005 to 0.05
+                "MaxCellAngle": 0.005, #changed from 0.01 to 0.005 to 0.05
+                "MaxCellAngleRZ": 0.005,#changed from 0.01 to 0.005 to 0.05
                 "Chi2Cut": 100,
                 "MinClustersOnTrack": 4,
                 "MaxDistance": CT_MAX_DIST,
@@ -94,8 +94,8 @@ parameters = {
         "LowerCellAngle2": {
             "collections": [],
             "params": {
-                "MaxCellAngle": 0.05, #changed from 0.01 to 0.005 to 0.05
-                "MaxCellAngleRZ": 0.05, #changed from 0.01 to 0.005 to 0.05
+                "MaxCellAngle": 0.005, #changed from 0.01 to 0.005 to 0.05
+                "MaxCellAngleRZ": 0.005, #changed from 0.01 to 0.005 to 0.05
                 "Chi2Cut": 2000,
                 "MinClustersOnTrack": 4,
                 "MaxDistance": CT_MAX_DIST,
@@ -191,7 +191,7 @@ root_hist_svc.FileName = "conformal_tracking_hist.root"
 ApplicationMgr(
     TopAlg=[tracking],
     EvtSel="NONE",
-    EvtMax=1,
+    EvtMax=-1,
     ExtSvc=[eds, geoservice, root_hist_svc],
-    OutputLevel=DEBUG,
+    OutputLevel=INFO,
 )
