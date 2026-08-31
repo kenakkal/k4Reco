@@ -2542,58 +2542,57 @@ void ConformalTracking::buildNewTracks(UniqueKDTracks& conformalTracks, SharedKD
       for the very first seed hit, of the very first cell, of the very first candidate track processed 
       in the entire event, before anything at all has ever been accepted into it. From that point on, 
       it's non-empty for the rest of the event. */
-      for (auto& conformalTrack : conformalTracks) {
+
+      /* Check if the new track is a clone of one or more already-accepted tracks.
+      Unlike the OG logic, every overlapping track is checked, not just the first 
+      one found before deciding wherether to accept, replace or discard the candidate 
+      */
+
+      std::vector<size_t> overlappingIndices; 
+      bool bestTrackLostToSomeone = false;
+
+      for (size_t i = 0; i < conformalTracks.size(); i++){
+        auto & conformalTrack = conformalTracks[i];
         const unsigned int nOverlappingHits = overlappingHits(bestTrack, conformalTrack);
-        if (nOverlappingHits >= 2) {
-          clone = true;
-          debug() << "- Track is a clone" << endmsg;
+        if (nOverlappingHits < 2)
+          continue; // no relationship with this track -- keep checking the rest
+        
+        overlappingIndices.push_back(i);
+        debug() << "- Track overlaps with already-accepted track " << i << endmsg;
 
-          // Calculate the new and existing chi2 values
-          double newchi2 = bestTrack->chi2ndofZS() + bestTrack->chi2ndof();
-          double oldchi2 = conformalTrack->chi2ndofZS() + conformalTrack->chi2ndof();
+        // Calculate the new and existing chi2 values
+        double newchi2 = bestTrack->chi2ndofZS() + bestTrack->chi2ndof();
+        double oldchi2 = conformalTrack->chi2ndofZS() + conformalTrack->chi2ndof();
 
-          // If the new track is an existing track + segment (overlapping hits = conformal track hits), take the new track
-          if (nOverlappingHits == conformalTrack->m_clusters.size()) {
-            conformalTrack = std::move(bestTrack);
-            bestTrackUsed = true;
-            debug() << "- New = existing + segment. Replaced existing with new" << endmsg;
-          }
+        bool bestTrackWins;
 
-          // If the new track is a subtrack of an existing track, don't consider it further (already try removing bad
-          // hits from tracks
-
-          else if (nOverlappingHits == bestTrack->m_clusters.size()) {
-            debug() << "- New + segment = existing. New ignored" << endmsg;
-            break;
-          }
-          // Otherwise take the longest
-          else if (bestTrack->m_clusters.size() == conformalTrack->m_clusters.size()) { // New track equal in length
-            if (newchi2 > oldchi2) {
-              debug() << "- New equal length. Worse chi2:" << newchi2 << endmsg;
-              break;
-            }
-            // Take it
-            conformalTrack = std::move(bestTrack);
-            bestTrackUsed = true;
-            debug() << "- New equal. Better chi2 Replaced existing with new" << endmsg;
-
-          } else if (bestTrack->m_clusters.size() > conformalTrack->m_clusters.size()) { // New track longer
-
-            // Take it
-            conformalTrack = std::move(bestTrack);
-            bestTrackUsed = true;
-            debug() << "- New longer. Replaced existing with new" << endmsg;
-
-          } else if (bestTrack->m_clusters.size() < conformalTrack->m_clusters.size()) { // Old track longer
-            debug() << "- Old longer. New ignored" << endmsg;
-            break;
-          }
-          break;
+        if (nOverlappingHits == conformalTrack->m_clusters.size()) {
+          // New track is an existing track + segment -- new wins
+          bestTrackWins = true;
+          debug() << "- New = existing + segment. New wins this comparison" << endmsg;
+        } else if (nOverlappingHits == bestTrack->m_clusters.size()) {
+          // New track is a subtrack of an existing track -- new loses
+          bestTrackWins = false;
+          debug() << "- New + segment = existing. New loses this comparison" << endmsg;
+        } else if (bestTrack->m_clusters.size() == conformalTrack->m_clusters.size()) {
+          // Equal length -- better chi2 wins
+          bestTrackWins = (newchi2 <= oldchi2);
+          debug() << "- Equal length. " << (bestTrackWins ? "New" : "Existing") << " has better chi2" << endmsg;
+        } else {
+          // Different length -- longer wins
+          bestTrackWins = (bestTrack->m_clusters.size() > conformalTrack->m_clusters.size());
+          debug() << "- " << (bestTrackWins ? "New" : "Existing") << " track longer. " << (bestTrackWins ? "New" : "Existing") << " wins" << endmsg;
         }
-      } // end of iterating through conformalTracks for loop
-
+        
+        if (!bestTrackWins) {
+          bestTrackLostToSomeone = true;
+          debug() << "- New track lost to existing track " << i << ". New track discarded" << endmsg;
+          break; // one definitive loss is enough to discard the candidate
+        }
+      }
+      
       // If not a clone, save the new track
-      if (!clone) {
+      if (overlappingIndices.empty()) {
         bestTrackUsed = true;
 
         debug() << "- Track is not a clone. Pushing back best track with chi2/ndof " << bestTrack->chi2ndof()
@@ -2612,13 +2611,29 @@ void ConformalTracking::buildNewTracks(UniqueKDTracks& conformalTracks, SharedKD
         // }
 
         conformalTracks.push_back(std::move(bestTrack)); // conformalTracks vec gets filled here
+      } else if (!bestTrackLostToSomeone) {
+        // Beat every overlapping track -- replace the first, remove the rest
+        bestTrackUsed = true;
+        debug() << "- New track beat all " << overlappingIndices.size()
+                << " overlapping track(s). Replacing" << endmsg;
+        
+        if (debugSeed && kdhit == debugSeed) {
+          debug() << "== New track beat all overlapping tracks, chi2/ndof " << bestTrack->chi2ndof() << endmsg;
+        }
+        
+        conformalTracks[overlappingIndices.front()] = std::move(bestTrack);
+        for (auto it = overlappingIndices.rbegin(); it != overlappingIndices.rend() - 1; ++it) {
+          conformalTracks.erase(conformalTracks.begin() + *it);
+        }
       }
-
+      /* else :  bestTrack lost to at least one overlapping track -- already discarded above.
+      bestTrackUsed stays false, and the existing cleanup below will reset() it */
+      
       if (not bestTrackUsed) {
         bestTrack.reset();
       }
-
     } // end for besttracks
+    
     if (m_debugTime) {
       debug() << "  Time report: Sort best tracks took " << stopwatch_hit.RealTime() * 1000 << std::scientific
               << " milli-seconds" << endmsg;
