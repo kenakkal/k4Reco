@@ -2554,7 +2554,7 @@ void ConformalTracking::buildNewTracks(UniqueKDTracks& conformalTracks, SharedKD
       for (size_t i = 0; i < conformalTracks.size(); i++){
         auto & conformalTrack = conformalTracks[i];
         const unsigned int nOverlappingHits = overlappingHits(bestTrack, conformalTrack);
-        if (nOverlappingHits < 2)
+        if (nOverlappingHits < 1) // change sthis threshold from 2 to 1 to be more agressive in rejecting clones 
           continue; // no relationship with this track -- keep checking the rest
         
         overlappingIndices.push_back(i);
