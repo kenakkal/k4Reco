@@ -1351,43 +1351,63 @@ bool ConformalTracking::tracksAreCompatibleForMerge(const UKDTrack& trackA, cons
   /* check these numbers - they are tunable constants */
   constexpr double MAX_SIGNIFICANCE_GRADIENT = 5.0;     // pull cut on curvature (~pT)
   constexpr double MAX_SIGNIFICANCE_INTERCEPT = 5.0;    // pull cut on UV intercept (~phi0/d0)
-  constexpr double MAX_RELATIVE_DIFF_GRADIENTZS = 0.05; // plain tolerance on SZ slope (~theta);
-                                                         // no fit error is exposed for this fit,
-                                                         // so this is NOT a pull like the other two
+  constexpr double MAX_ABS_DIFF_THETA = 0.01; // plain ABSOLUTE tolerance on polar angle (radians); no fit
+                                               // error is exposed for this fit, so this is NOT a pull.
+                                               // Compares theta = atan(gradientZS) rather than gradientZS
+                                               // itself: gradientZS is ds/dz = tan(theta), which diverges
+                                               // as theta -> 90 degrees (purely transverse tracks) -- exactly
+                                               // the regime this validation sample lives in. A tiny amount of
+                                               // z-position noise there produces a huge swing in gradientZS,
+                                               // even though the actual angular difference is negligible.
+                                               // atan() is smooth and bounded everywhere, avoiding this.
+
+
+  // Minimum error floors for the pull-based checks below. KDTrack::calculateChi2() rescales the raw,
+  // properly-weighted fit covariance by (residual2 / dof) before taking the sqrt (see the "to be multipled
+  // by sigma^2" comment in linearRegression()). For a 4-hit, highPTfit track, dof = 4-2 = 2, only 2
+  // residual degrees of freedom, so this rescaling factor is itself a noisy, low-statistics estimate that
+  // can land near zero by chance for a clean, low-scatter track, even with realistic (~3um) input hit
+  // resolution. Dividing by such an artificially tiny error turns a physically negligible parameter
+  // difference into a huge, meaningless significance. These floors are placeholder starting points, NOT
+  // derived from the real resolution so retune once tested against busier, more realistic multi-particle
+  // samples. A more principled long-term fix would expose KDTrack's pre-rescale (raw) covariance-based
+  // error separately, bypassing this low-DOF instability entirely; deferred for now.
+  constexpr double MIN_GRADIENT_ERROR = 1e-6;
+  constexpr double MIN_INTERCEPT_ERROR = 1e-6;
+
 
   // check 1 : curvature/pt                                                         
   const double dGradient = std::abs(trackA->gradient() - trackB->gradient());  // abs difference in the curvature  of teh two tracks 
-  const double sigGradient = std::sqrt(trackA->m_gradientError * trackA->m_gradientError +
-                                        trackB->m_gradientError * trackB->m_gradientError); // error propogation on the difference 
+  const double sigGradient = std::max(std::sqrt(trackA->m_gradientError * trackA->m_gradientError +
+                                        trackB->m_gradientError * trackB->m_gradientError), MIN_GRADIENT_ERROR);; // error propogation on the difference 
   info() << "trackA gradient: " <<  trackA->gradient() << " trackB gradient:" << trackB->gradient() << endmsg;
   info()<< "dGradient = " << dGradient << " sigGradient = " << sigGradient << endmsg; 
-  const double significanceGradient =
-      (sigGradient > 0) ? dGradient / sigGradient : std::numeric_limits<double>::max(); // pull distribution -> how many combined sigmas apart 
+  const double significanceGradient = dGradient / sigGradient;// pull distribution -> how many combined sigmas apart 
   info() << "SignificanceGradient = " << significanceGradient << endmsg;
 
   // check 2 : intercept/ transverse impact parameter d0 
   const double dIntercept = std::abs(trackA->intercept() - trackB->intercept());
-  const double sigIntercept = std::sqrt(trackA->m_interceptError * trackA->m_interceptError +
-                                         trackB->m_interceptError * trackB->m_interceptError);
+  const double sigIntercept = std::max(std::sqrt(trackA->m_interceptError * trackA->m_interceptError +
+                                         trackB->m_interceptError * trackB->m_interceptError), MIN_INTERCEPT_ERROR);
   info() << "trackA intercept: " <<  trackA->intercept() << " trackB intercept:" << trackB->intercept() << endmsg;
   info() << "dIntercept = " << dIntercept << " sigIntercept = " << sigIntercept << endmsg;
-  const double significanceIntercept =
-      (sigIntercept > 0) ? dIntercept / sigIntercept : std::numeric_limits<double>::max();
+  const double significanceIntercept = dIntercept / sigIntercept;
   info() << "SignificanceIntercept = " << significanceIntercept << endmsg;
   
   // check 3 : SZ slope/ polar angle check  
-  const double gzA = trackA->gradientZS(); 
-  const double gzB = trackB->gradientZS();
-  const double relDiffGradientZS = (std::abs(gzA) + std::abs(gzB) > 0)
-                                        ? std::abs(gzA - gzB) / (0.5 * (std::abs(gzA) + std::abs(gzB)))
-                                        : 0.0; // |diff|/mean 
+  const double thetaA = std::atan(trackA->gradientZS());
+  const double thetaB = std::atan(trackB->gradientZS());
+  info() << "thetaA: " <<  thetaA << " thetaB:" << thetaB << endmsg;
+  const double absDiffTheta = std::abs(thetaA - thetaB);
+  info() << "absDiffTheta = " << absDiffTheta << endmsg;
+                                        
 
   const bool compatible = (significanceGradient < MAX_SIGNIFICANCE_GRADIENT) &&
                            (significanceIntercept < MAX_SIGNIFICANCE_INTERCEPT) &&
-                           (relDiffGradientZS < MAX_RELATIVE_DIFF_GRADIENTZS);
+                           (absDiffTheta < MAX_ABS_DIFF_THETA);
 
   info() << "tracksAreCompatibleForMerge: significanceGradient=" << significanceGradient
-          << " significanceIntercept=" << significanceIntercept << " relDiffGradientZS=" << relDiffGradientZS
+          << " significanceIntercept=" << significanceIntercept << " absDiffTheta=" << absDiffTheta
           << " compatible=" << compatible << endmsg;
 
   return compatible;
