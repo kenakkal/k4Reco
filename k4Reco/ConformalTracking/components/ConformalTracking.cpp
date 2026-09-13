@@ -59,6 +59,9 @@
 #include <iostream>
 #include <stdexcept>
 
+#include <limits>
+#include <utility>
+
 // Sort tracker hits from smaller to larger radius
 inline bool sort_by_radius(const edm4hep::TrackerHitPlane& hit1, const edm4hep::TrackerHitPlane& hit2) {
   return edm4hep::utils::magnitudeTransverse(hit1.getPosition()) <
@@ -723,6 +726,11 @@ edm4hep::TrackCollection ConformalTracking::operator()(
   // possibility that clones/fakes are still present. Try to remove them by looking at overlapping hits. Turned off at
   // the moment
 
+  // Attempt to merge pairs of hit-disjoint candidate tracks that are likely two "halves" of one true particle
+  // trajectory (see mergeSplitTracks doc comment for the compatibility criteria and multi-particle safety notes).
+  mergeSplitTracks(conformalTracks);
+  info() << "conformalTracks.size() after mergeSplitTracks: " << conformalTracks.size() << endmsg;
+
   // Now make "real" tracks from all of the conformal tracks
   info() << "*** CA has made " << conformalTracks.size() << (conformalTracks.size() == 1 ? " track ***" : " tracks ***")
          << endmsg;
@@ -1330,6 +1338,143 @@ int ConformalTracking::overlappingHits(const UKDTrack& track1, const UKDTrack& t
   }
   return nHitsInCommon;
 }
+
+/* tracksAreCompatibleForMerge: pairwise predicate deciding whether two hit-disjoint candidate tracks are likely two
+ * "halves" of the same true particle trajectory, based on compatibility of their fitted parameters.
+ *
+ * IMPORTANT (multi-particle safety): the caller is responsible for the overlappingHits==0 check and for the
+ * ambiguity rule (refusing to merge a track with more than one compatible partner) -- this function only answers
+ * "are these two specific tracks' fitted parameters compatible", nothing about the rest of the event.
+ */
+bool ConformalTracking::tracksAreCompatibleForMerge(const UKDTrack& trackA, const UKDTrack& trackB) const {
+
+  /* check these numbers - they are tunable constants */
+  constexpr double MAX_SIGNIFICANCE_GRADIENT = 5.0;     // pull cut on curvature (~pT)
+  constexpr double MAX_SIGNIFICANCE_INTERCEPT = 5.0;    // pull cut on UV intercept (~phi0/d0)
+  constexpr double MAX_RELATIVE_DIFF_GRADIENTZS = 0.05; // plain tolerance on SZ slope (~theta);
+                                                         // no fit error is exposed for this fit,
+                                                         // so this is NOT a pull like the other two
+
+  // check 1 : curvature/pt                                                         
+  const double dGradient = std::abs(trackA->gradient() - trackB->gradient());  // abs difference in the curvature  of teh two tracks 
+  const double sigGradient = std::sqrt(trackA->m_gradientError * trackA->m_gradientError +
+                                        trackB->m_gradientError * trackB->m_gradientError); // error propogation on the difference 
+  info() << "trackA gradient: " <<  trackA->gradient() << " trackB gradient:" << trackB->gradient() << endmsg;
+  info()<< "dGradient = " << dGradient << " sigGradient = " << sigGradient << endmsg; 
+  const double significanceGradient =
+      (sigGradient > 0) ? dGradient / sigGradient : std::numeric_limits<double>::max(); // pull distribution -> how many combined sigmas apart 
+  info() << "SignificanceGradient = " << significanceGradient << endmsg;
+
+  // check 2 : intercept/ transverse impact parameter d0 
+  const double dIntercept = std::abs(trackA->intercept() - trackB->intercept());
+  const double sigIntercept = std::sqrt(trackA->m_interceptError * trackA->m_interceptError +
+                                         trackB->m_interceptError * trackB->m_interceptError);
+  info() << "trackA intercept: " <<  trackA->intercept() << " trackB intercept:" << trackB->intercept() << endmsg;
+  info() << "dIntercept = " << dIntercept << " sigIntercept = " << sigIntercept << endmsg;
+  const double significanceIntercept =
+      (sigIntercept > 0) ? dIntercept / sigIntercept : std::numeric_limits<double>::max();
+  info() << "SignificanceIntercept = " << significanceIntercept << endmsg;
+  
+  // check 3 : SZ slope/ polar angle check  
+  const double gzA = trackA->gradientZS(); 
+  const double gzB = trackB->gradientZS();
+  const double relDiffGradientZS = (std::abs(gzA) + std::abs(gzB) > 0)
+                                        ? std::abs(gzA - gzB) / (0.5 * (std::abs(gzA) + std::abs(gzB)))
+                                        : 0.0; // |diff|/mean 
+
+  const bool compatible = (significanceGradient < MAX_SIGNIFICANCE_GRADIENT) &&
+                           (significanceIntercept < MAX_SIGNIFICANCE_INTERCEPT) &&
+                           (relDiffGradientZS < MAX_RELATIVE_DIFF_GRADIENTZS);
+
+  info() << "tracksAreCompatibleForMerge: significanceGradient=" << significanceGradient
+          << " significanceIntercept=" << significanceIntercept << " relDiffGradientZS=" << relDiffGradientZS
+          << " compatible=" << compatible << endmsg;
+
+  return compatible;
+}
+
+/* mergeTwoTracks: given two tracks already established as a mutually, unambiguously compatible disjoint pair,
+ * build the single merged track: combine their clusters and refit from scratch on the combined hit set. Never
+ * trust either original track's fit for the merged result.
+ */
+UKDTrack ConformalTracking::mergeTwoTracks(const UKDTrack& trackA, const UKDTrack& trackB) const {
+  info() << " Inside ConformalTracking::mergeTwoTracks " << endmsg; 
+  auto mergedTrack = std::make_unique<KDTrack>(*trackA);
+  for (auto const& cluster : trackB->clusters()) {
+    mergedTrack->add(cluster);
+  }
+  mergedTrack->linearRegressionConformal();
+  mergedTrack->linearRegression();
+  mergedTrack->calculateChi2();
+  mergedTrack->calculateChi2SZ();
+  return mergedTrack;
+}
+
+/* mergeSplitTracks: event-level orchestration. Scans all pairs of candidate tracks, and for every pair with
+ * overlappingHits == 0, asks tracksAreCompatibleForMerge whether they look like the same particle. Only merges
+ * pairs that are BOTH compatible AND unambiguous (neither track has more than one compatible partner) -- see the
+ * multi-particle safety note on tracksAreCompatibleForMerge for why hit-disjointness alone is not sufficient.
+ */
+void ConformalTracking::mergeSplitTracks(UniqueKDTracks& conformalTracks) const {
+  info() << "inside ConformalTracking::mergeSplitTracks " << endmsg;
+  const size_t nTracks = conformalTracks.size();
+  std::vector<int> compatiblePartner(nTracks, -1); // -1 = none yet, -2 = ambiguous (more than one found); array is initialised to -1 for all tracks
+
+  for (size_t i = 0; i < nTracks; i++) {
+    for (size_t j = i + 1; j < nTracks; j++) {
+      auto& trackA = conformalTracks[i];
+      auto& trackB = conformalTracks[j];
+
+      if (overlappingHits(trackA, trackB) != 0) {
+        info() << "Overlapping hits found between tracks: " << trackA << " and" << trackB << endmsg;
+        continue; // only genuinely disjoint pairs are candidates for merging
+      }
+      if (!tracksAreCompatibleForMerge(trackA, trackB)) {
+        info() << "Incompatible fitted parameters found between tracks :" << trackA << " and" << trackB << endmsg;
+        continue; // skip if the fitted parameters dont match 
+      }
+      for (auto [a, b] : {std::pair<size_t, size_t>{i, j}, std::pair<size_t, size_t>{j, i}}) {
+        if (compatiblePartner[a] == -1) {
+          compatiblePartner[a] = static_cast<int>(b);
+        } else if (compatiblePartner[a] != static_cast<int>(b)) {
+          compatiblePartner[a] = -2; // more than one compatible partner found -- ambiguous, do not merge
+        }
+      }
+    } // end of inner j-loop
+  } // end of inner i-loop
+
+  std::vector<bool> consumed(nTracks, false);
+  UniqueKDTracks mergedTracks;
+
+  for (size_t i = 0; i < nTracks; i++) {
+    if (consumed[i])
+      continue;
+
+    const int partner = compatiblePartner[i];
+    if (partner >= 0 && !consumed[static_cast<size_t>(partner)] &&
+        compatiblePartner[static_cast<size_t>(partner)] == static_cast<int>(i)) {
+      // Mutually and unambiguously compatible pair -- safe to merge.
+      info() << " calling mergeTwoTracks for tracks " << conformalTracks[i] << " and " << conformalTracks[static_cast<size_t>(partner)] << endmsg;
+      auto mergedTrack = mergeTwoTracks(conformalTracks[i], conformalTracks[static_cast<size_t>(partner)]);
+
+      info() << "mergeSplitTracks: merged disjoint tracks " << i << " and " << partner << " into one "
+             << mergedTrack->m_clusters.size() << "-hit track" << endmsg;
+
+      mergedTracks.push_back(std::move(mergedTrack));
+      consumed[i] = true;
+      consumed[static_cast<size_t>(partner)] = true;
+    }
+  }
+
+  for (size_t i = 0; i < nTracks; i++) {
+    if (!consumed[i]) {
+      mergedTracks.push_back(std::move(conformalTracks[i]));
+    }
+  }
+
+  conformalTracks = std::move(mergedTracks);
+}
+
 
 /* extendSeedCells grows each seed cell outwards*/
 void ConformalTracking::extendSeedCells(SharedCells& cells, UKDTree& nearestNeighbours, bool extendingTrack,
@@ -2529,7 +2674,7 @@ void ConformalTracking::buildNewTracks(UniqueKDTracks& conformalTracks, SharedKD
           (!parameters.m_onlyZSchi2cut && (bestTrack->chi2ndof() > chi2cut || bestTrack->chi2ndofZS() > chi2cut))) {
         debug() << "- Track has chi2 too large" << endmsg;
         /* bestTrack : ref to the actual element in the bestTracks vec. bestTrack itself is a UKDTrack (unique_ptr<KDTrack>). 
-        Calling .reset() on it : destroys the KDTrack object this pointer currently owns (freeing its memory), and sets the pointer itself to null. 
+        Calling .reset() on it : destroys the KDTrack object this pointer currently owns (freeing its memory), and sets the pointer itself to null 
         Since bestTrack is a reference to the real slot in bestTracks, this empties that slot in the actual vector */
         bestTrack.reset();
         continue; // moves to the next bestTrack 

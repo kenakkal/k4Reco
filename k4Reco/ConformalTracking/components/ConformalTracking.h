@@ -96,6 +96,11 @@ private:
   double fitWithoutPoint(KDTrack, int) const;
   int overlappingHits(const UKDTrack&, const UKDTrack&) const;
 
+  // Track merging 
+  bool tracksAreCompatibleForMerge(const UKDTrack&, const UKDTrack&) const;
+  UKDTrack mergeTwoTracks(const UKDTrack&, const UKDTrack&) const;
+  void mergeSplitTracks(UniqueKDTracks&) const;
+
   void fitWithPoint(KDTrack kdTrack, SKDCluster& hit, double& deltaChi2, double& deltaChi2zs) const;
 
   // Used for debugging
