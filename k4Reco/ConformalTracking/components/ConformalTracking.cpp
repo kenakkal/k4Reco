@@ -1349,9 +1349,20 @@ int ConformalTracking::overlappingHits(const UKDTrack& track1, const UKDTrack& t
 bool ConformalTracking::tracksAreCompatibleForMerge(const UKDTrack& trackA, const UKDTrack& trackB) const {
 
   /* check these numbers - they are tunable constants */
-  constexpr double MAX_SIGNIFICANCE_GRADIENT = 5.0;     // pull cut on curvature (~pT)
-  constexpr double MAX_SIGNIFICANCE_INTERCEPT = 5.0;    // pull cut on UV intercept (~phi0/d0)
-  constexpr double MAX_ABS_DIFF_THETA = 0.01; // plain ABSOLUTE tolerance on polar angle (radians); no fit
+  // Thresholds below were sanity-checked against the SIGNAL distribution only (this sample is one true
+  // muon per event, so every evaluated pair is a genuine same-particle match by construction) -- these are
+  // NOT yet optimized against a background (different-particle) distribution, which requires a busier,
+  // multi-particle sample. What we can say now: MAX_SIGNIFICANCE_GRADIENT was rejecting a large fraction of
+  // genuine matches (signal mean 6.57 sat ABOVE the old 5.0 cut -- likely a symptom of the low-DOF
+  // residual-rescaling instability, not a real discriminating power problem), while
+  // MAX_SIGNIFICANCE_INTERCEPT and MAX_ABS_DIFF_THETA were both complete no-ops, sitting ~1000x and ~500x
+  // above where the real signal distribution actually lives. Values below are chosen as roughly
+  // mean + a few standard deviations of the observed signal distribution, to capture the large majority of
+  // genuine matches without leaving the cut meaninglessly loose. Revisit once a background distribution is
+  // available.
+  constexpr double MAX_SIGNIFICANCE_GRADIENT = 20.0;     // pull cut on curvature (~pT)
+  constexpr double MAX_SIGNIFICANCE_INTERCEPT = 0.02;    // pull cut on UV intercept (~phi0/d0)
+  constexpr double MAX_ABS_DIFF_THETA = 3e-5; // plain ABSOLUTE tolerance on polar angle (radians); no fit
                                                // error is exposed for this fit, so this is NOT a pull.
                                                // Compares theta = atan(gradientZS) rather than gradientZS
                                                // itself: gradientZS is ds/dz = tan(theta), which diverges
