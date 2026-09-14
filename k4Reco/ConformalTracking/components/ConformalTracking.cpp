@@ -1398,7 +1398,13 @@ bool ConformalTracking::tracksAreCompatibleForMerge(const UKDTrack& trackA, cons
   const double thetaA = std::atan(trackA->gradientZS());
   const double thetaB = std::atan(trackB->gradientZS());
   info() << "thetaA: " <<  thetaA << " thetaB:" << thetaB << endmsg;
-  const double absDiffTheta = std::abs(thetaA - thetaB);
+  const double rawDiffTheta = std::abs(thetaA - thetaB);
+  // atan() has range (-pi/2, +pi/2), but tan(theta) flips sign discontinuously exactly at theta=90 degrees.
+  // Two tracks with true theta on opposite sides of 90 (e.g. 89.999 and 90.001 degrees -- physically almost
+  // identical) can therefore land near +pi/2 and -pi/2 respectively, giving a raw difference near pi even
+  // though the real angular difference is negligible. Wrap: a raw difference near pi is equivalent to a raw
+  // difference near 0 for this purpose.
+  const double absDiffTheta = std::min(rawDiffTheta, M_PI - rawDiffTheta);
   info() << "absDiffTheta = " << absDiffTheta << endmsg;
                                         
 
@@ -1409,6 +1415,22 @@ bool ConformalTracking::tracksAreCompatibleForMerge(const UKDTrack& trackA, cons
   info() << "tracksAreCompatibleForMerge: significanceGradient=" << significanceGradient
           << " significanceIntercept=" << significanceIntercept << " absDiffTheta=" << absDiffTheta
           << " compatible=" << compatible << endmsg;
+  
+  // For threshold-tuning study: fill diagnostic histograms with every evaluated pair's metrics,
+  // regardless of outcome, so a full-sample signal distribution can be inspected directly in the output
+  // ROOT file (conformal_tracking_hist.root, per the steering file's RootHistoSink). Valid as a "signal"
+  // (same true particle) distribution ONLY while running on a single-particle-per-event sample -- remove
+  // or gate behind a proper MC truth check before relying on this on a multi-particle sample, since
+  // "evaluated pair" no longer implies "same true particle" there.
+  if (m_debugPlots) {
+    ++m_dGradient[dGradient];
+    ++m_sigGradient[sigGradient];
+    ++m_significanceGradient[significanceGradient];
+    ++m_dIntercept[dIntercept];
+    ++m_sigIntercept[sigIntercept];
+    ++m_significanceIntercept[significanceIntercept];
+    ++m_absDiffTheta[absDiffTheta];
+  }
 
   return compatible;
 }
@@ -1423,10 +1445,9 @@ UKDTrack ConformalTracking::mergeTwoTracks(const UKDTrack& trackA, const UKDTrac
   for (auto const& cluster : trackB->clusters()) {
     mergedTrack->add(cluster);
   }
-  mergedTrack->linearRegressionConformal();
-  mergedTrack->linearRegression();
-  mergedTrack->calculateChi2();
-  mergedTrack->calculateChi2SZ();
+  mergedTrack->linearRegression();           // fits UV -> sets m_gradient/m_intercept; internally calls calculateChi2() exactly once, correctly finalizing the errors
+  mergedTrack->linearRegressionConformal();  // fits SZ (needs m_intercept/m_gradient from above, internally calls calculateChi2SZ() exactly once
+  // add chi2ndof ??
   return mergedTrack;
 }
 

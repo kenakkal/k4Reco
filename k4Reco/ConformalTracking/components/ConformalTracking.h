@@ -183,6 +183,17 @@ private:
   mutable Gaudi::Accumulators::StaticRootHistogram<1> m_Y{this, "m_Y", "m_Y", {500, -1500, 1500}};
   mutable Gaudi::Accumulators::StaticRootHistogram<1> m_Z{this, "m_Z", "m_Z", {500, -2500, 2500}};
 
+  // mergeSplitTracks/tracksAreCompatibleForMerge diagnostic histograms -- for threshold-tuning study.
+  // Binning below is a first-pass guess, NOT derived from the real distributions -- widen/narrow once
+  // you've seen the actual filled histograms.
+  mutable Gaudi::Accumulators::StaticRootHistogram<1> m_dGradient{this, "m_dGradient", "m_dGradient", {200, 0, 2e-6}};
+  mutable Gaudi::Accumulators::StaticRootHistogram<1> m_sigGradient{this, "m_sigGradient", "m_sigGradient", {200, 0, 2e-6}};
+  mutable Gaudi::Accumulators::StaticRootHistogram<1> m_significanceGradient{this, "m_significanceGradient", "m_significanceGradient", {200, 0, 25}};
+  mutable Gaudi::Accumulators::StaticRootHistogram<1> m_dIntercept{this, "m_dIntercept", "m_dIntercept", {200, 0, 2e-9}};
+  mutable Gaudi::Accumulators::StaticRootHistogram<1> m_sigIntercept{this, "m_sigIntercept", "m_sigIntercept", {200, 0, 2e-6}};
+  mutable Gaudi::Accumulators::StaticRootHistogram<1> m_significanceIntercept{this, "m_significanceIntercept", "m_significanceIntercept", {200, 0, 0.05}};
+  mutable Gaudi::Accumulators::StaticRootHistogram<1> m_absDiffTheta{this, "m_absDiffTheta", "m_absDiffTheta", {200, 0, 2e-5}};
+
   TH1F* m_neighX = nullptr;
   TH1F* m_neighY = nullptr;
   TH1F* m_neighZ = nullptr;
