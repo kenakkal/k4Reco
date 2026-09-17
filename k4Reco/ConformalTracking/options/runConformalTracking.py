@@ -34,28 +34,31 @@ from Configurables import Gaudi__Histograming__Sink__Root as RootHistoSink
 
 from conformal_tracking_utils import configure_conformal_tracking_steps
 
+#from Configurables import ClonesAndSplitTracksFinder
+
+
 id_service = UniqueIDGenSvc("UniqueIDGenSvc")
 
 eds = EventDataSvc("EventDataSvc")
 
 geoservice = GeoSvc("GeoSvc")
-geoservice.detectors = ["Single_Layer_stave_detailed.xml"]
+geoservice.detectors = ["/afs/cern.ch/user/k/kenakkal/k4geo/FCCee/ALFA/compact/ALFA_o1_v00/ALFA_o1_v00.xml"]
 geoservice.OutputLevel = INFO
 geoservice.EnableGeant4Geo = False
 
 iosvc = IOSvc()
-iosvc.Input = "alfaTrackerDigi_forceHitsOntoSurfuce.root"
-iosvc.Output = "alfaTracker_conformal_tracking.root"
+iosvc.Input = "alfaTrackerDigi_Skimmed_2Failures.root" #"alfaTrackerDigi.root" #"alfaTrackerDigi_Skimmed.root" 
+iosvc.Output = "alfaTracker_conformal_tracking_Skimmed_2Failures.root" #"alfaTracker_conformal_tracking.root"
 
 
 tracking = ConformalTracking()
-tracking.TrackerHitCollectionNames = ["SiWrBHits"]
-tracking.RelationsNames = ["SiWrBHitRelations"]
+tracking.TrackerHitCollectionNames = ["OTBarHits"]
+tracking.RelationsNames = ["OTBarHitRelations"]
 tracking.MCParticleCollectionName = ["MCParticles"]
-tracking.SiTrackCollectionName = "SiWrBTracks"
+tracking.SiTrackCollectionName = "OTBarTracks"
 
 tracking.MainTrackerHitCollectionNames = []
-tracking.VertexBarrelHitCollectionNames = ["SiWrBHits"]
+tracking.VertexBarrelHitCollectionNames = ["OTBarHits"]
 tracking.VertexEndcapHitCollectionNames = []
 
 # tracking.DebugHits = "DebugHits"
@@ -73,11 +76,17 @@ tracking.trackPurity = 0.7
 
 CT_MAX_DIST = 0.05
 
+'''clones_finder = ClonesAndSplitTracksFinder()
+clones_finder.InputTrackCollectionName = "OTBarTracks"
+clones_finder.OutputTrackCollectionName = "OTBarTracksClean"
+clones_finder.mergeSplitTracks = False'''
+
+
 # The keys (VXDBarrel, VXDEndcap...) are simply names and are not passed to ConformalTracking
 parameters = {
         #tightest cuts, builds fresh tracks from just the vertex barrel
         "Barrel": {
-            "collections": ["SiWrBHits"],
+            "collections": ["OTBarHits"],
             "params": {
                 "MaxCellAngle": 0.005, #changed from 0.01 to 0.005 to 0.05
                 "MaxCellAngleRZ": 0.005,#changed from 0.01 to 0.005 to 0.05
@@ -186,7 +195,7 @@ configure_conformal_tracking_steps(tracking, parameters) # flow of control goes 
 
 hps = RootHistSvc("HistogramPersistencySvc")
 root_hist_svc = RootHistoSink("RootHistoSink")
-root_hist_svc.FileName = "conformal_tracking_hist.root"
+root_hist_svc.FileName = "conformal_tracking_hist.root" #"conformal_tracking_hist_8Failures.root"  #"conformal_tracking_hist.root" #"conformal_tracking_hist_skimmed.root"
 
 ApplicationMgr(
     TopAlg=[tracking],
