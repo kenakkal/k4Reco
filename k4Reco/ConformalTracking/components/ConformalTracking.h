@@ -192,7 +192,9 @@ private:
   mutable Gaudi::Accumulators::StaticRootHistogram<1> m_dIntercept{this, "m_dIntercept", "m_dIntercept", {200, 0, 2e-9}};
   mutable Gaudi::Accumulators::StaticRootHistogram<1> m_sigIntercept{this, "m_sigIntercept", "m_sigIntercept", {200, 0, 2e-6}};
   mutable Gaudi::Accumulators::StaticRootHistogram<1> m_significanceIntercept{this, "m_significanceIntercept", "m_significanceIntercept", {200, 0, 0.05}};
-  mutable Gaudi::Accumulators::StaticRootHistogram<1> m_absDiffTheta{this, "m_absDiffTheta", "m_absDiffTheta", {200, 0, 2e-5}};
+  mutable Gaudi::Accumulators::StaticRootHistogram<1> m_absDiffTheta{this, "m_absDiffTheta", "m_absDiffTheta", {200, 0, 4e-4}};
+  //mutable Gaudi::Accumulators::StaticRootHistogram<1> m_compatible{this, "m_compatible", "m_compatible", {2, -0.5, 1.5}};
+  
 
   TH1F* m_neighX = nullptr;
   TH1F* m_neighY = nullptr;
