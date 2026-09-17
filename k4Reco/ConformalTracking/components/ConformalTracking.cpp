@@ -1360,9 +1360,9 @@ bool ConformalTracking::tracksAreCompatibleForMerge(const UKDTrack& trackA, cons
   // mean + a few standard deviations of the observed signal distribution, to capture the large majority of
   // genuine matches without leaving the cut meaninglessly loose. Revisit once a background distribution is
   // available.
-  constexpr double MAX_SIGNIFICANCE_GRADIENT = 20.0;     // pull cut on curvature (~pT)
+  constexpr double MAX_SIGNIFICANCE_GRADIENT = 25.0;     // pull cut on curvature (~pT)
   constexpr double MAX_SIGNIFICANCE_INTERCEPT = 0.02;    // pull cut on UV intercept (~phi0/d0)
-  constexpr double MAX_ABS_DIFF_THETA = 3e-5; // plain ABSOLUTE tolerance on polar angle (radians); no fit
+  constexpr double MAX_ABS_DIFF_THETA = 1.9e-4; // plain ABSOLUTE tolerance on polar angle (radians); no fit
                                                // error is exposed for this fit, so this is NOT a pull.
                                                // Compares theta = atan(gradientZS) rather than gradientZS
                                                // itself: gradientZS is ds/dz = tan(theta), which diverges
@@ -1426,6 +1426,8 @@ bool ConformalTracking::tracksAreCompatibleForMerge(const UKDTrack& trackA, cons
   info() << "tracksAreCompatibleForMerge: significanceGradient=" << significanceGradient
           << " significanceIntercept=" << significanceIntercept << " absDiffTheta=" << absDiffTheta
           << " compatible=" << compatible << endmsg;
+
+  
   
   // For threshold-tuning study: fill diagnostic histograms with every evaluated pair's metrics,
   // regardless of outcome, so a full-sample signal distribution can be inspected directly in the output
@@ -1441,6 +1443,7 @@ bool ConformalTracking::tracksAreCompatibleForMerge(const UKDTrack& trackA, cons
     ++m_sigIntercept[sigIntercept];
     ++m_significanceIntercept[significanceIntercept];
     ++m_absDiffTheta[absDiffTheta];
+    //++m_compatible[compatible ? 1 :0];
   }
 
   return compatible;
