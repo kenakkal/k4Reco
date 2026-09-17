@@ -727,7 +727,6 @@ edm4hep::TrackCollection ConformalTracking::operator()(
   // the moment
 
   // Attempt to merge pairs of hit-disjoint candidate tracks that are likely two "halves" of one true particle
-  // trajectory (see mergeSplitTracks doc comment for the compatibility criteria and multi-particle safety notes).
   mergeSplitTracks(conformalTracks);
   info() << "conformalTracks.size() after mergeSplitTracks: " << conformalTracks.size() << endmsg;
 
@@ -1347,94 +1346,92 @@ int ConformalTracking::overlappingHits(const UKDTrack& track1, const UKDTrack& t
  * "are these two specific tracks' fitted parameters compatible", nothing about the rest of the event.
  */
 bool ConformalTracking::tracksAreCompatibleForMerge(const UKDTrack& trackA, const UKDTrack& trackB) const {
+  /* Thresholds below were sanity-checked against the SIGNAL distribution only (this sample is one true
+   * muon per event, so every evaluated pair is a genuine same-particle match by construction). These are
+   * NOT yet optimized against a background (different-particle) distribution, which requires a busier,
+   * multi-particle sample. What we can say now: MAX_SIGNIFICANCE_GRADIENT was rejecting a large fraction of
+   * genuine matches (signal mean 6.57 sat ABOVE the old 5.0 cut, while MAX_SIGNIFICANCE_INTERCEPT and 
+   * MAX_ABS_DIFF_THETA were both complete no-ops, sitting ~1000x and ~50x
+   * above where the real signal distribution actually lives. Values below are chosen as roughly
+   * mean + a few standard deviations of the observed signal distribution, to capture the large majority of
+   * genuine matches without leaving the cut meaninglessly loose. Revisit once a background distribution is available. */
 
-  /* check these numbers - they are tunable constants */
-  // Thresholds below were sanity-checked against the SIGNAL distribution only (this sample is one true
-  // muon per event, so every evaluated pair is a genuine same-particle match by construction) -- these are
-  // NOT yet optimized against a background (different-particle) distribution, which requires a busier,
-  // multi-particle sample. What we can say now: MAX_SIGNIFICANCE_GRADIENT was rejecting a large fraction of
-  // genuine matches (signal mean 6.57 sat ABOVE the old 5.0 cut -- likely a symptom of the low-DOF
-  // residual-rescaling instability, not a real discriminating power problem), while
-  // MAX_SIGNIFICANCE_INTERCEPT and MAX_ABS_DIFF_THETA were both complete no-ops, sitting ~1000x and ~500x
-  // above where the real signal distribution actually lives. Values below are chosen as roughly
-  // mean + a few standard deviations of the observed signal distribution, to capture the large majority of
-  // genuine matches without leaving the cut meaninglessly loose. Revisit once a background distribution is
-  // available.
+   /* check these numbers - they are tunable constants */
   constexpr double MAX_SIGNIFICANCE_GRADIENT = 25.0;     // pull cut on curvature (~pT)
   constexpr double MAX_SIGNIFICANCE_INTERCEPT = 0.02;    // pull cut on UV intercept (~phi0/d0)
-  constexpr double MAX_ABS_DIFF_THETA = 1.9e-4; // plain ABSOLUTE tolerance on polar angle (radians); no fit
-                                               // error is exposed for this fit, so this is NOT a pull.
-                                               // Compares theta = atan(gradientZS) rather than gradientZS
-                                               // itself: gradientZS is ds/dz = tan(theta), which diverges
-                                               // as theta -> 90 degrees (purely transverse tracks) -- exactly
-                                               // the regime this validation sample lives in. A tiny amount of
-                                               // z-position noise there produces a huge swing in gradientZS,
-                                               // even though the actual angular difference is negligible.
-                                               // atan() is smooth and bounded everywhere, avoiding this.
+  constexpr double MAX_ABS_DIFF_THETA = 1.9e-4; /* plain ABSOLUTE tolerance on polar angle (radians); no fit
+                                                 * error is exposed for this fit, so this is NOT a pull.
+                                                 * Compares theta = atan(gradientZS) rather than gradientZS
+                                                 * itself: gradientZS is ds/dz = tan(theta), which diverges
+                                                 * as theta -> 90 degrees (purely transverse tracks) - exactly
+                                                 * the regime this validation sample lives in. A tiny amount of
+                                                 * z-position noise there produces a huge swing in gradientZS,
+                                                 * even though the actual angular difference is negligible.
+                                                 * atan() is smooth and bounded everywhere, avoiding this. */
 
 
-  // Minimum error floors for the pull-based checks below. KDTrack::calculateChi2() rescales the raw,
-  // properly-weighted fit covariance by (residual2 / dof) before taking the sqrt (see the "to be multipled
-  // by sigma^2" comment in linearRegression()). For a 4-hit, highPTfit track, dof = 4-2 = 2, only 2
-  // residual degrees of freedom, so this rescaling factor is itself a noisy, low-statistics estimate that
-  // can land near zero by chance for a clean, low-scatter track, even with realistic (~3um) input hit
-  // resolution. Dividing by such an artificially tiny error turns a physically negligible parameter
-  // difference into a huge, meaningless significance. These floors are placeholder starting points, NOT
-  // derived from the real resolution so retune once tested against busier, more realistic multi-particle
-  // samples. A more principled long-term fix would expose KDTrack's pre-rescale (raw) covariance-based
-  // error separately, bypassing this low-DOF instability entirely; deferred for now.
+  /* Minimum error floors for the pull-based checks below. KDTrack::calculateChi2() rescales the raw,
+   * properly-weighted fit covariance by (residual2/dof) before taking the sqrt (see the "to be multipled
+   * by sigma^2" comment in linearRegression()). For a 4-hit, highPTfit track, dof = 4-2 = 2, only 2
+   * residual degrees of freedom, so this rescaling factor is itself a noisy, low-statistics estimate that
+   * can land near zero by chance for a clean, low-scatter track, even with realistic (~3um) input hit
+   * resolution. Dividing by such an artificially tiny error turns a physically negligible parameter
+   * difference into a huge, meaningless significance. These floors are placeholder starting points, NOT
+   * derived from the real resolution so retune once tested against busier, more realistic multi-particle
+   * samples.*/
+  
   constexpr double MIN_GRADIENT_ERROR = 1e-6;
   constexpr double MIN_INTERCEPT_ERROR = 1e-6;
 
 
   // check 1 : curvature/pt                                                         
-  const double dGradient = std::abs(trackA->gradient() - trackB->gradient());  // abs difference in the curvature  of teh two tracks 
+  const double dGradient = std::abs(trackA->gradient() - trackB->gradient());  // abs difference in the curvature  of the two tracks 
   const double sigGradient = std::max(std::sqrt(trackA->m_gradientError * trackA->m_gradientError +
-                                        trackB->m_gradientError * trackB->m_gradientError), MIN_GRADIENT_ERROR);; // error propogation on the difference 
-  info() << "trackA gradient: " <<  trackA->gradient() << " trackB gradient:" << trackB->gradient() << endmsg;
-  info()<< "dGradient = " << dGradient << " sigGradient = " << sigGradient << endmsg; 
+                                        trackB->m_gradientError * trackB->m_gradientError), MIN_GRADIENT_ERROR);; // error propogation on the difference of the two tracks' curvature 
+  debug() << "trackA gradient: " <<  trackA->gradient() << " trackB gradient:" << trackB->gradient() << endmsg;
+  debug()<< "dGradient = " << dGradient << " sigGradient = " << sigGradient << endmsg; 
   const double significanceGradient = dGradient / sigGradient;// pull distribution -> how many combined sigmas apart 
-  info() << "SignificanceGradient = " << significanceGradient << endmsg;
+  debug() << "SignificanceGradient = " << significanceGradient << endmsg;
 
   // check 2 : intercept/ transverse impact parameter d0 
   const double dIntercept = std::abs(trackA->intercept() - trackB->intercept());
   const double sigIntercept = std::max(std::sqrt(trackA->m_interceptError * trackA->m_interceptError +
                                          trackB->m_interceptError * trackB->m_interceptError), MIN_INTERCEPT_ERROR);
-  info() << "trackA intercept: " <<  trackA->intercept() << " trackB intercept:" << trackB->intercept() << endmsg;
-  info() << "dIntercept = " << dIntercept << " sigIntercept = " << sigIntercept << endmsg;
+  debug() << "trackA intercept: " <<  trackA->intercept() << " trackB intercept:" << trackB->intercept() << endmsg;
+  debug() << "dIntercept = " << dIntercept << " sigIntercept = " << sigIntercept << endmsg;
   const double significanceIntercept = dIntercept / sigIntercept;
-  info() << "SignificanceIntercept = " << significanceIntercept << endmsg;
+  debug() << "SignificanceIntercept = " << significanceIntercept << endmsg;
   
   // check 3 : SZ slope/ polar angle check  
   const double thetaA = std::atan(trackA->gradientZS());
   const double thetaB = std::atan(trackB->gradientZS());
-  info() << "thetaA: " <<  thetaA << " thetaB:" << thetaB << endmsg;
+  debug() << "thetaA: " <<  thetaA << " thetaB:" << thetaB << endmsg;
   const double rawDiffTheta = std::abs(thetaA - thetaB);
-  // atan() has range (-pi/2, +pi/2), but tan(theta) flips sign discontinuously exactly at theta=90 degrees.
-  // Two tracks with true theta on opposite sides of 90 (e.g. 89.999 and 90.001 degrees -- physically almost
-  // identical) can therefore land near +pi/2 and -pi/2 respectively, giving a raw difference near pi even
-  // though the real angular difference is negligible. Wrap: a raw difference near pi is equivalent to a raw
-  // difference near 0 for this purpose.
+  /* atan() has range (-pi/2, +pi/2), but tan(theta) flips sign discontinuously exactly at theta=90 degrees.
+   * Two tracks with true theta on opposite sides of 90 (e.g. 89.999 and 90.001 degrees - physically almost
+   * identical) can therefore land near +pi/2 and -pi/2 respectively, giving a raw difference near pi even
+   * though the real angular difference is negligible. Wrap: a raw difference near pi is equivalent to a raw
+   * difference near 0 for this purpose.*/
   const double absDiffTheta = std::min(rawDiffTheta, M_PI - rawDiffTheta);
-  info() << "absDiffTheta = " << absDiffTheta << endmsg;
+  debug() << "absDiffTheta = " << absDiffTheta << endmsg;
                                         
 
   const bool compatible = (significanceGradient < MAX_SIGNIFICANCE_GRADIENT) &&
                            (significanceIntercept < MAX_SIGNIFICANCE_INTERCEPT) &&
                            (absDiffTheta < MAX_ABS_DIFF_THETA);
 
-  info() << "tracksAreCompatibleForMerge: significanceGradient=" << significanceGradient
+  debug() << "tracksAreCompatibleForMerge: significanceGradient=" << significanceGradient
           << " significanceIntercept=" << significanceIntercept << " absDiffTheta=" << absDiffTheta
           << " compatible=" << compatible << endmsg;
 
   
   
-  // For threshold-tuning study: fill diagnostic histograms with every evaluated pair's metrics,
-  // regardless of outcome, so a full-sample signal distribution can be inspected directly in the output
-  // ROOT file (conformal_tracking_hist.root, per the steering file's RootHistoSink). Valid as a "signal"
-  // (same true particle) distribution ONLY while running on a single-particle-per-event sample -- remove
-  // or gate behind a proper MC truth check before relying on this on a multi-particle sample, since
-  // "evaluated pair" no longer implies "same true particle" there.
+  /* For threshold-tuning study: fill diagnostic histograms with every evaluated pair's metrics,
+   * regardless of outcome, so a full-sample signal distribution can be inspected directly in the output
+   * ROOT file (conformal_tracking_hist.root, per the steering file's RootHistoSink). Valid as a "signal"
+   * (same true particle) distribution ONLY while running on a single-particle-per-event sample - remove
+   * or gate behind a proper MC truth check before relying on this on a multi-particle sample, since
+   * "evaluated pair" no longer implies "same true particle" there.*/
   if (m_debugPlots) {
     ++m_dGradient[dGradient];
     ++m_sigGradient[sigGradient];
@@ -1454,26 +1451,24 @@ bool ConformalTracking::tracksAreCompatibleForMerge(const UKDTrack& trackA, cons
  * trust either original track's fit for the merged result.
  */
 UKDTrack ConformalTracking::mergeTwoTracks(const UKDTrack& trackA, const UKDTrack& trackB) const {
-  info() << " Inside ConformalTracking::mergeTwoTracks " << endmsg; 
+  debug() << " Inside ConformalTracking::mergeTwoTracks " << endmsg; 
   auto mergedTrack = std::make_unique<KDTrack>(*trackA);
   for (auto const& cluster : trackB->clusters()) {
     mergedTrack->add(cluster);
   }
   mergedTrack->linearRegression();           // fits UV -> sets m_gradient/m_intercept; internally calls calculateChi2() exactly once, correctly finalizing the errors
   mergedTrack->linearRegressionConformal();  // fits SZ (needs m_intercept/m_gradient from above, internally calls calculateChi2SZ() exactly once
-  // add chi2ndof ??
   return mergedTrack;
 }
 
 /* mergeSplitTracks: event-level orchestration. Scans all pairs of candidate tracks, and for every pair with
  * overlappingHits == 0, asks tracksAreCompatibleForMerge whether they look like the same particle. Only merges
- * pairs that are BOTH compatible AND unambiguous (neither track has more than one compatible partner) -- see the
- * multi-particle safety note on tracksAreCompatibleForMerge for why hit-disjointness alone is not sufficient.
+ * pairs that are BOTH compatible AND unambiguous (neither track has more than one compatible partner).
  */
 void ConformalTracking::mergeSplitTracks(UniqueKDTracks& conformalTracks) const {
-  info() << "inside ConformalTracking::mergeSplitTracks " << endmsg;
+  debug() << "inside ConformalTracking::mergeSplitTracks " << endmsg;
   const size_t nTracks = conformalTracks.size();
-  std::vector<int> compatiblePartner(nTracks, -1); // -1 = none yet, -2 = ambiguous (more than one found); array is initialised to -1 for all tracks
+  std::vector<int> compatiblePartner(nTracks, -1); // -1 = no compatible partner found yet, -2 = ambiguous (more than one compatible partner found); 
 
   for (size_t i = 0; i < nTracks; i++) {
     for (size_t j = i + 1; j < nTracks; j++) {
@@ -1481,11 +1476,11 @@ void ConformalTracking::mergeSplitTracks(UniqueKDTracks& conformalTracks) const 
       auto& trackB = conformalTracks[j];
 
       if (overlappingHits(trackA, trackB) != 0) {
-        info() << "Overlapping hits found between tracks: " << trackA << " and" << trackB << endmsg;
+        debug() << "Overlapping hits found between tracks: " << trackA << " and " << trackB << endmsg;
         continue; // only genuinely disjoint pairs are candidates for merging
       }
       if (!tracksAreCompatibleForMerge(trackA, trackB)) {
-        info() << "Incompatible fitted parameters found between tracks :" << trackA << " and" << trackB << endmsg;
+        debug() << "Incompatible fitted parameters found between tracks :" << trackA << " and " << trackB << endmsg;
         continue; // skip if the fitted parameters dont match 
       }
       for (auto [a, b] : {std::pair<size_t, size_t>{i, j}, std::pair<size_t, size_t>{j, i}}) {
@@ -1506,13 +1501,14 @@ void ConformalTracking::mergeSplitTracks(UniqueKDTracks& conformalTracks) const 
       continue;
 
     const int partner = compatiblePartner[i];
-    if (partner >= 0 && !consumed[static_cast<size_t>(partner)] &&
-        compatiblePartner[static_cast<size_t>(partner)] == static_cast<int>(i)) {
-      // Mutually and unambiguously compatible pair -- safe to merge.
-      info() << " calling mergeTwoTracks for tracks " << conformalTracks[i] << " and " << conformalTracks[static_cast<size_t>(partner)] << endmsg;
+    if (partner >= 0 &&                          // has a real recorded partner (not -1 "none" or -2 "ambiguous")
+      !consumed[static_cast<size_t>(partner)] &&  // partner hasn't already been merged into something else
+      compatiblePartner[static_cast<size_t>(partner)] == static_cast<int>(i)) {  // partner independently agrees i is ITS one match too (mutual, not one-sided)
+      // Mutually and unambiguously compatible pair - safe to merge.
+      debug() << " calling mergeTwoTracks for tracks " << conformalTracks[i] << " and " << conformalTracks[static_cast<size_t>(partner)] << endmsg;
       auto mergedTrack = mergeTwoTracks(conformalTracks[i], conformalTracks[static_cast<size_t>(partner)]);
 
-      info() << "mergeSplitTracks: merged disjoint tracks " << i << " and " << partner << " into one "
+      debug() << "mergeSplitTracks: merged disjoint tracks " << i << " and " << partner << " into one "
              << mergedTrack->m_clusters.size() << "-hit track" << endmsg;
 
       mergedTracks.push_back(std::move(mergedTrack));
