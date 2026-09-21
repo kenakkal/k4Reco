@@ -33,16 +33,16 @@ digi.SubDetectorName = "OTBar"    #"SiWrB"
 digi.IsStrip = False
 #smearing resolution in mm applied along the two local directions on eachs ensor plane. 
 # Here 6 values corresponds to the 6 vertex detetcors layers. will need to modify this for alfa 
-digi.ResolutionU = [0.003, 0.003, 0.003, 0.003, 0.003, 0.003]
-digi.ResolutionV = [0.003, 0.003, 0.003, 0.003, 0.003, 0.003]
+digi.ResolutionU = [0.003, 0.003, 0.003, 0.003]
+digi.ResolutionV = [0.003, 0.003, 0.003, 0.003]
 digi.SimTrackHitCollectionName = ["OTBarCollection"] #input collection name; change it according to the root file 
 #output container storing the relation btw each digi hit and its corresponsding sim hit so as to trace back which MC hit produced the digi hit 
 digi.SimTrkHitRelCollection = ["OTBarHitRelations"]
 digi.TrackerHitCollectionName = ["OTBarHits"] # conatiner for new digi hits after smearing 
 
 iosvc = IOSvc()
-iosvc.Input = "alfaTrackerSimulation.root"
-iosvc.Output = "alfaTrackerDigi.root"
+iosvc.Input = "IOFiles_ALFA_o1_v00/alfaTrackerSimulation.root"
+iosvc.Output = "alfaTrackerDigi_test.root"
 
 # inp.collections = [
 #     "VertexBarrelCollection",
