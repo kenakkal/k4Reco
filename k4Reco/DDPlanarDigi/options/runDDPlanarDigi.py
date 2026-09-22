@@ -41,8 +41,8 @@ digi.SimTrkHitRelCollection = ["OTBarHitRelations"]
 digi.TrackerHitCollectionName = ["OTBarHits"] # conatiner for new digi hits after smearing 
 
 iosvc = IOSvc()
-iosvc.Input = "IOFiles_ALFA_o1_v00/alfaTrackerSimulation.root"
-iosvc.Output = "alfaTrackerDigi_test.root"
+iosvc.Input = "/afs/cern.ch/user/k/kenakkal/k4Reco/k4Reco/Simulation/alfaTrackerSimulation_Single_PionMinus_10GeV_fixedDir_matchedToMuon.root"
+iosvc.Output = "alfaTrackerDigi_Single_Pion_10GeV_fixedDir_matchedToMuon.root"
 
 # inp.collections = [
 #     "VertexBarrelCollection",
@@ -52,7 +52,7 @@ iosvc.Output = "alfaTrackerDigi_test.root"
 #Histogramming services
 hps = RootHistSvc("HistogramPersistencySvc")
 root_hist_svc = RootHistoSink("RootHistoSink") #writes histos diretcly to a root file : ddplanardigi_hist.root
-root_hist_svc.FileName = "ddplanardigi_hist.root"
+root_hist_svc.FileName = "ddplanardigi_hist_Single_PionMinus_10GeV_fixedDir_matchedToMuon.root"
 
 #TopAlg : algo executed once per event
 ApplicationMgr(TopAlg=[digi],
