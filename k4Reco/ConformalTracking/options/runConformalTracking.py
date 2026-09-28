@@ -47,8 +47,8 @@ geoservice.OutputLevel = INFO
 geoservice.EnableGeant4Geo = False
 
 iosvc = IOSvc()
-iosvc.Input = "alfaTrackerDigi_Skimmed_2Failures.root" #"alfaTrackerDigi.root" #"alfaTrackerDigi_Skimmed.root" 
-iosvc.Output = "alfaTracker_conformal_tracking_Skimmed_2Failures.root" #"alfaTracker_conformal_tracking.root"
+iosvc.Input = "alfaTrackerDigi_Single_Pion_10GeV_fixedDir_matchedToMuon_Skimmed_6Failures.root" #"/afs/cern.ch/user/k/kenakkal/k4Reco/k4Reco/DDPlanarDigi/alfaTrackerDigi_Single_Pion_10GeV_fixedDir_matchedToMuon.root" #"alfaTrackerDigi_Skimmed_2Failures.root" #"alfaTrackerDigi.root" #"alfaTrackerDigi_Skimmed.root" 
+iosvc.Output = "alfaTracker_conformal_tracking_Single_Pion_10GeV_fixedDir_matchedToMuon_Skimmed_6Failures.root" #"alfaTracker_conformal_tracking_Single_Pion_10GeV_fixedDir_matchedToMuon.root"  #"alfaTracker_conformal_tracking_Skimmed_2Failures.root" #"alfaTracker_conformal_tracking.root"
 
 
 tracking = ConformalTracking()
@@ -75,12 +75,6 @@ tracking.TooManyTracks = 100000
 tracking.trackPurity = 0.7
 
 CT_MAX_DIST = 0.05
-
-'''clones_finder = ClonesAndSplitTracksFinder()
-clones_finder.InputTrackCollectionName = "OTBarTracks"
-clones_finder.OutputTrackCollectionName = "OTBarTracksClean"
-clones_finder.mergeSplitTracks = False'''
-
 
 # The keys (VXDBarrel, VXDEndcap...) are simply names and are not passed to ConformalTracking
 parameters = {
@@ -195,7 +189,7 @@ configure_conformal_tracking_steps(tracking, parameters) # flow of control goes 
 
 hps = RootHistSvc("HistogramPersistencySvc")
 root_hist_svc = RootHistoSink("RootHistoSink")
-root_hist_svc.FileName = "conformal_tracking_hist.root" #"conformal_tracking_hist_8Failures.root"  #"conformal_tracking_hist.root" #"conformal_tracking_hist_skimmed.root"
+root_hist_svc.FileName = "conformal_tracking_hist__Single_Pion_10GeV_fixedDir_matchedToMuon_Skimmed_6Failures.root" #"conformal_tracking_hist__Single_Pion_10GeV_fixedDir_matchedToMuon.root" #"conformal_tracking_hist_8Failures.root"  #"conformal_tracking_hist.root" #"conformal_tracking_hist_skimmed.root"
 
 ApplicationMgr(
     TopAlg=[tracking],
