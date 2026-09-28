@@ -1420,7 +1420,7 @@ bool ConformalTracking::tracksAreCompatibleForMerge(const UKDTrack& trackA, cons
                            (significanceIntercept < MAX_SIGNIFICANCE_INTERCEPT) &&
                            (absDiffTheta < MAX_ABS_DIFF_THETA);
 
-  debug() << "tracksAreCompatibleForMerge: significanceGradient=" << significanceGradient
+  info() << "tracksAreCompatibleForMerge: significanceGradient=" << significanceGradient
           << " significanceIntercept=" << significanceIntercept << " absDiffTheta=" << absDiffTheta
           << " compatible=" << compatible << endmsg;
 
@@ -1476,11 +1476,11 @@ void ConformalTracking::mergeSplitTracks(UniqueKDTracks& conformalTracks) const 
       auto& trackB = conformalTracks[j];
 
       if (overlappingHits(trackA, trackB) != 0) {
-        debug() << "Overlapping hits found between tracks: " << trackA << " and " << trackB << endmsg;
+        info() << "Overlapping hits found between tracks: " << trackA << " and " << trackB << endmsg;
         continue; // only genuinely disjoint pairs are candidates for merging
       }
       if (!tracksAreCompatibleForMerge(trackA, trackB)) {
-        debug() << "Incompatible fitted parameters found between tracks :" << trackA << " and " << trackB << endmsg;
+        info() << "Incompatible fitted parameters found between tracks :" << trackA << " and " << trackB << endmsg;
         continue; // skip if the fitted parameters dont match 
       }
       for (auto [a, b] : {std::pair<size_t, size_t>{i, j}, std::pair<size_t, size_t>{j, i}}) {
@@ -1505,10 +1505,10 @@ void ConformalTracking::mergeSplitTracks(UniqueKDTracks& conformalTracks) const 
       !consumed[static_cast<size_t>(partner)] &&  // partner hasn't already been merged into something else
       compatiblePartner[static_cast<size_t>(partner)] == static_cast<int>(i)) {  // partner independently agrees i is ITS one match too (mutual, not one-sided)
       // Mutually and unambiguously compatible pair - safe to merge.
-      debug() << " calling mergeTwoTracks for tracks " << conformalTracks[i] << " and " << conformalTracks[static_cast<size_t>(partner)] << endmsg;
+      info() << " calling mergeTwoTracks for tracks " << conformalTracks[i] << " and " << conformalTracks[static_cast<size_t>(partner)] << endmsg;
       auto mergedTrack = mergeTwoTracks(conformalTracks[i], conformalTracks[static_cast<size_t>(partner)]);
 
-      debug() << "mergeSplitTracks: merged disjoint tracks " << i << " and " << partner << " into one "
+      info() << "mergeSplitTracks: merged disjoint tracks " << i << " and " << partner << " into one "
              << mergedTrack->m_clusters.size() << "-hit track" << endmsg;
 
       mergedTracks.push_back(std::move(mergedTrack));
