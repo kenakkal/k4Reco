@@ -29,22 +29,22 @@ import os
 id_service = UniqueIDGenSvc("UniqueIDGenSvc")
 
 geoservice = GeoSvc("GeoSvc")
-geoservice.detectors = [os.environ["K4GEO"]+"/FCCee/CLD/compact/CLD_o2_v07/CLD_o2_v07.xml"]
+geoservice.detectors = ["/afs/cern.ch/user/k/kenakkal/k4geo/FCCee/ALFA/compact/ALFA_o1_v00/ALFA_o1_v00.xml"] #[os.environ["K4GEO"]+"/FCCee/CLD/compact/CLD_o2_v07/CLD_o2_v07.xml"]
 geoservice.OutputLevel = INFO
 geoservice.EnableGeant4Geo = False
 
 digi = DDPlanarDigi()
-digi.SubDetectorName = "Vertex"
+digi.SubDetectorName = "OTBar" #"Vertex"
 digi.IsStrip = False
-digi.ResolutionU = [0.003, 0.003, 0.003, 0.003, 0.003, 0.003]
-digi.ResolutionV = [0.003, 0.003, 0.003, 0.003, 0.003, 0.003]
-digi.SimTrackHitCollectionName = ["VertexBarrelCollection"]
-digi.SimTrkHitRelCollection = ["VXDTrackerHitRelations"]
-digi.TrackerHitCollectionName = ["VXDTrackerHits"]
+digi.ResolutionU = [0.003]
+digi.ResolutionV = [0.003]
+digi.SimTrackHitCollectionName = ["OTBarCollection"]
+digi.SimTrkHitRelCollection = ["OTBarHitRelations"]
+digi.TrackerHitCollectionName = ["OTBarHits"]
 
 iosvc = IOSvc()
-iosvc.Input = "input.root"
-iosvc.Output = "output_digi.root"
+iosvc.Input = "/afs/cern.ch/user/k/kenakkal/k4Reco/k4Reco/Simulation/alfaTrackerSimulation_Single_MuonMinus_100GeV_MDI_ECAL_TRACKER.root"
+iosvc.Output = "alfaTrackerDigi_Single_MuonMinus_100GeV_main_MDI_ECAL.root"
 
 # inp.collections = [
 #     "VertexBarrelCollection",
@@ -53,7 +53,7 @@ iosvc.Output = "output_digi.root"
 
 hps = RootHistSvc("HistogramPersistencySvc")
 root_hist_svc = RootHistoSink("RootHistoSink")
-root_hist_svc.FileName = "ddplanardigi_hist.root"
+root_hist_svc.FileName = "ddplanardigi_hist_Single_MuonMinus_100GeV_main_MDI_ECAL_TRACKER.root"
 
 ApplicationMgr(TopAlg=[digi],
                EvtSel="NONE",
