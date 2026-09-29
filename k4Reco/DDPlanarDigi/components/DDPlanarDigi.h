@@ -86,16 +86,16 @@ private:
   Gaudi::Property<std::string> m_subDetName{this, "SubDetectorName", "VXD", "Name of the subdetector"};
   Gaudi::Property<bool> m_isStrip{this, "IsStrip", false, "Whether the hits are 1D strip hits"};
   Gaudi::Property<std::vector<float>> m_resULayer{
-      this, "ResolutionU", {0.004}, "Resolution in the direction of u; either one per layer or one for all layers"};
+      this, "ResolutionU", {0.003}, "Resolution in the direction of u; either one per layer or one for all layers"};
   Gaudi::Property<std::vector<float>> m_resVLayer{
-      this, "ResolutionV", {0.004}, "Resolution in the direction of v; either one per layer or one for all layers"};
+      this, "ResolutionV", {0.003}, "Resolution in the direction of v; either one per layer or one for all layers"};
   Gaudi::Property<std::vector<float>> m_resTLayer{
       this,
       "ResolutionT",
       {-1},
       "Resolution in the direction of t; either one per layer or one for all layers. If the single entry is negative, "
       "disable time smearing. "};
-  Gaudi::Property<bool> m_forceHitsOntoSurface{this, "ForceHitsOntoSurface", false,
+  Gaudi::Property<bool> m_forceHitsOntoSurface{this, "ForceHitsOntoSurface", true,
                                                "Project hits onto the surface in case they are not yet on the surface"};
   Gaudi::Property<double> m_minEnergy{this, "MinEnergy", 0.0, "Minimum energy (GeV) of SimTrackerHit to be digitized"};
 
