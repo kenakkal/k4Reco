@@ -43,8 +43,8 @@ digi.SimTrkHitRelCollection = ["OTBarHitRelations"]
 digi.TrackerHitCollectionName = ["OTBarHits"]
 
 iosvc = IOSvc()
-iosvc.Input = "/afs/cern.ch/user/k/kenakkal/k4Reco/k4Reco/Simulation/alfaTrackerSimulation_Single_MuonMinus_100GeV_MDI_ECAL_TRACKER.root"
-iosvc.Output = "alfaTrackerDigi_Single_MuonMinus_100GeV_main_MDI_ECAL.root"
+iosvc.Input = "/afs/cern.ch/user/k/kenakkal/k4Reco/k4Reco/Simulation/alfaTrackerSimulation_Single_MuonMinus_100GeV_MDI_ECAL_TRACKER_matchedtoALFASteeringFile_nighlty.root"
+iosvc.Output = "alfaTrackerDigi_Single_MuonMinus_100GeV_main_MDI_ECAL_TRACKER_matchedtoALFASteeringFile_nighlty.root"
 
 # inp.collections = [
 #     "VertexBarrelCollection",
@@ -53,7 +53,7 @@ iosvc.Output = "alfaTrackerDigi_Single_MuonMinus_100GeV_main_MDI_ECAL.root"
 
 hps = RootHistSvc("HistogramPersistencySvc")
 root_hist_svc = RootHistoSink("RootHistoSink")
-root_hist_svc.FileName = "ddplanardigi_hist_Single_MuonMinus_100GeV_main_MDI_ECAL_TRACKER.root"
+root_hist_svc.FileName = "ddplanardigi_hist_Single_MuonMinus_100GeV_main_MDI_ECAL_TRACKER_matchedtoALFASteeringFile_nighlty.root"
 
 ApplicationMgr(TopAlg=[digi],
                EvtSel="NONE",
